@@ -53,6 +53,9 @@ $(function() {
   <div class="summary">
 <a href="#nested-classes">Classes</a> &#124;
 <a href="#namespaces">Namespaces</a> &#124;
+<a href="#define-members">Macros</a> &#124;
+<a href="#typedef-members">Typedefs</a> &#124;
+<a href="#enum-members">Enumerations</a> &#124;
 <a href="#func-members">Functions</a>  </div>
   <div class="headertitle"><div class="title">AIEVecToLLVM.cpp File Reference</div></div>
 </div><!--header-->
@@ -67,8 +70,11 @@ $(function() {
 <code>#include &quot;mlir/Conversion/LLVMCommon/ConversionTarget.h&quot;</code><br />
 <code>#include &quot;mlir/Conversion/LLVMCommon/Pattern.h&quot;</code><br />
 <code>#include &quot;mlir/Dialect/LLVMIR/LLVMDialect.h&quot;</code><br />
+<code>#include &quot;mlir/Dialect/Math/IR/Math.h&quot;</code><br />
+<code>#include &quot;mlir/Dialect/UB/IR/UBOps.h&quot;</code><br />
 <code>#include &quot;mlir/IR/TypeUtilities.h&quot;</code><br />
 <code>#include &lt;sstream&gt;</code><br />
+<code>#include &quot;aie/Conversion/Passes.h.inc&quot;</code><br />
 </div><div class="textblock"><div id="dynsection-0" onclick="return toggleVisibility(this)" class="dynheader closed" style="cursor:pointer;">
   <img id="dynsection-0-trigger" src="closed.png" alt="+"/> Include dependency graph for AIEVecToLLVM.cpp:</div>
 <div id="dynsection-0-summary" class="dynsummary" style="display:block;">
@@ -76,125 +82,125 @@ $(function() {
 <div id="dynsection-0-content" class="dyncontent" style="display:none;">
 <div class="center"><img src="AIEVecToLLVM_8cpp__incl.png" border="0" usemap="#alib_2Conversion_2AIEVecToLLVM_2AIEVecToLLVM_8cpp" alt=""/></div>
 <map name="alib_2Conversion_2AIEVecToLLVM_2AIEVecToLLVM_8cpp" id="alib_2Conversion_2AIEVecToLLVM_2AIEVecToLLVM_8cpp">
-<area shape="rect" title=" " alt="" coords="4493,5,4703,45"/>
-<area shape="rect" href="PassDetail_8h.html" title=" " alt="" coords="4465,101,4579,126"/>
-<area shape="poly" title=" " alt="" coords="4583,47,4543,92,4539,88,4579,44"/>
-<area shape="rect" href="AIEVecToLLVM_8h.html" title=" " alt="" coords="4561,269,4776,309"/>
-<area shape="poly" title=" " alt="" coords="4518,48,4482,67,4467,79,4455,95,4451,104,4450,112,4455,133,4467,181,4478,200,4496,219,4531,244,4570,262,4568,267,4528,249,4492,223,4473,203,4463,183,4450,134,4445,113,4445,103,4450,92,4464,76,4480,62,4516,43"/>
-<area shape="rect" href="AIEVecAIE1Ops_8h.html" title=" " alt="" coords="3029,181,3215,221"/>
-<area shape="poly" title=" " alt="" coords="4493,37,4211,61,3870,96,3518,142,3229,186,3228,180,3518,137,3870,91,4211,56,4492,32"/>
-<area shape="rect" href="AIEVecUtils_8h.html" title=" " alt="" coords="3996,93,4136,133"/>
-<area shape="poly" title=" " alt="" coords="4493,46,4150,101,4149,96,4492,41"/>
-<area shape="rect" href="AIEVecOps_8h.html" title=" " alt="" coords="3675,181,3815,221"/>
-<area shape="poly" title=" " alt="" coords="4493,31,4386,36,4258,47,4121,67,3985,96,3932,113,3879,134,3791,177,3789,172,3877,129,3930,108,3984,91,4120,61,4257,42,4385,31,4492,26"/>
-<area shape="rect" href="Utils_8h.html" title=" " alt="" coords="4604,93,4744,133"/>
-<area shape="poly" title=" " alt="" coords="4617,44,4650,81,4646,85,4613,47"/>
-<area shape="rect" href="XLLVMDialect_8h.html" title=" " alt="" coords="1676,189,1920,214"/>
-<area shape="poly" title=" " alt="" coords="4493,36,1934,194,1934,189,4492,31"/>
-<area shape="rect" title=" " alt="" coords="4768,93,4991,133"/>
-<area shape="poly" title=" " alt="" coords="4661,43,4805,87,4804,92,4659,48"/>
-<area shape="rect" title=" " alt="" coords="5015,93,5237,133"/>
-<area shape="poly" title=" " alt="" coords="4704,41,5001,89,5000,94,4703,46"/>
-<area shape="rect" title=" " alt="" coords="5261,93,5410,133"/>
-<area shape="poly" title=" " alt="" coords="4704,31,4948,53,5096,69,5247,90,5246,96,5096,75,4948,58,4703,36"/>
-<area shape="rect" title=" " alt="" coords="5434,101,5597,126"/>
-<area shape="poly" title=" " alt="" coords="4704,29,5026,49,5224,67,5422,91,5451,95,5450,101,5422,96,5223,72,5025,54,4704,34"/>
-<area shape="rect" title=" " alt="" coords="5621,101,5695,126"/>
-<area shape="poly" title=" " alt="" coords="4704,27,4915,35,5176,48,5427,66,5530,78,5609,91,5620,94,5619,99,5608,96,5530,83,5427,71,5176,53,4915,40,4703,32"/>
-<area shape="rect" href="Conversion_2Passes_8h.html" title=" " alt="" coords="4830,189,5009,214"/>
-<area shape="poly" title=" " alt="" coords="4564,123,4593,131,4846,183,4845,189,4592,136,4563,129"/>
-<area shape="rect" title=" " alt="" coords="4393,365,4541,390"/>
-<area shape="poly" title=" " alt="" coords="4519,127,4497,182,4479,275,4471,351,4466,351,4474,274,4491,181,4514,125"/>
-<area shape="rect" title=" " alt="" coords="4883,365,5009,390"/>
-<area shape="poly" title=" " alt="" coords="4561,123,4593,131,4638,135,4695,136,4828,135,4896,137,4957,144,5009,157,5029,167,5045,179,5068,210,5076,242,5071,275,5055,311,5043,327,5028,341,4995,361,4992,357,5025,337,5039,323,5050,308,5066,273,5071,242,5063,212,5041,183,5026,172,5007,162,4956,149,4895,142,4828,140,4695,141,4637,140,4592,136,4560,129"/>
-<area shape="rect" title=" " alt="" coords="4838,277,5041,302"/>
-<area shape="poly" title=" " alt="" coords="4562,123,4593,131,4636,135,4690,136,4818,135,4882,137,4941,144,4989,157,5008,167,5023,180,5030,192,5031,205,5020,230,4998,252,4972,271,4969,267,4994,248,5016,227,5026,204,5025,193,5019,183,5005,171,4987,162,4940,149,4882,142,4818,140,4690,141,4635,140,4592,136,4560,129"/>
-<area shape="rect" title=" " alt="" coords="4673,181,4806,221"/>
-<area shape="poly" title=" " alt="" coords="4552,124,4680,174,4678,179,4550,129"/>
-<area shape="rect" title=" " alt="" coords="4505,181,4648,221"/>
-<area shape="poly" title=" " alt="" coords="4532,125,4559,168,4555,171,4527,128"/>
-<area shape="rect" title=" " alt="" coords="3842,269,4018,309"/>
-<area shape="poly" title=" " alt="" coords="4508,128,4439,175,4392,202,4342,224,4259,247,4191,257,4121,262,4032,272,4031,267,4121,256,4191,251,4258,242,4340,219,4389,197,4436,171,4505,124"/>
-<area shape="poly" title=" " alt="" coords="4886,217,4738,267,4736,262,4885,212"/>
-<area shape="poly" title=" " alt="" coords="4925,214,4936,262,4931,263,4919,215"/>
-<area shape="poly" title=" " alt="" coords="4626,312,4508,362,4506,357,4623,307"/>
-<area shape="poly" title=" " alt="" coords="4730,307,4897,358,4895,363,4729,312"/>
-<area shape="rect" title=" " alt="" coords="4630,365,4707,390"/>
-<area shape="poly" title=" " alt="" coords="4671,310,4671,351,4666,351,4666,310"/>
-<area shape="rect" title=" " alt="" coords="3240,269,3436,309"/>
-<area shape="poly" title=" " alt="" coords="3170,219,3279,262,3277,267,3168,224"/>
-<area shape="rect" title=" " alt="" coords="2823,269,3005,309"/>
-<area shape="poly" title=" " alt="" coords="3077,224,2973,267,2971,262,3075,219"/>
-<area shape="rect" title=" " alt="" coords="3029,269,3215,309"/>
-<area shape="poly" title=" " alt="" coords="3125,222,3125,255,3119,255,3119,222"/>
-<area shape="rect" href="AIEVecAIE1Dialect_8h.html" title=" " alt="" coords="2412,277,2565,302"/>
-<area shape="poly" title=" " alt="" coords="3029,214,2821,237,2577,272,2553,276,2552,271,2576,267,2821,232,3028,209"/>
-<area shape="rect" title=" " alt="" coords="2589,269,2799,309"/>
-<area shape="poly" title=" " alt="" coords="3029,224,2802,269,2801,264,3028,219"/>
-<area shape="poly" title=" " alt="" coords="4137,124,4492,183,4491,188,4136,129"/>
-<area shape="poly" title=" " alt="" coords="3996,124,3229,193,3229,188,3996,118"/>
-<area shape="rect" href="AIEVecDialect_8h.html" title=" " alt="" coords="4233,269,4379,309"/>
-<area shape="poly" title=" " alt="" coords="4015,136,3980,153,3950,174,3940,185,3934,196,3935,208,3941,220,3960,234,3989,244,4064,256,4148,261,4220,267,4219,272,4147,266,4064,261,3988,249,3958,238,3937,223,3929,209,3929,195,3935,182,3946,170,3977,148,4013,131"/>
-<area shape="rect" href="AIEVecTypes_8h.html" title=" " alt="" coords="3736,357,3876,397"/>
-<area shape="poly" title=" " alt="" coords="4036,136,4011,154,3990,176,3980,199,3981,209,3987,220,4009,241,4033,254,4057,262,4082,264,4134,258,4187,243,4241,228,4294,221,4320,223,4345,231,4370,246,4393,268,4400,278,4403,289,4400,300,4393,311,4368,325,4321,336,4186,355,4029,367,3890,375,3890,370,4028,362,4186,349,4320,331,4366,320,4390,307,4396,298,4398,289,4396,280,4389,271,4367,250,4343,236,4319,229,4294,226,4242,233,4189,248,4135,263,4082,270,4056,267,4031,259,4006,245,3983,223,3975,211,3974,198,3985,173,4008,150,4033,131"/>
-<area shape="poly" title=" " alt="" coords="3997,136,3829,180,3827,175,3995,131"/>
-<area shape="rect" title=" " alt="" coords="3996,181,4136,221"/>
-<area shape="poly" title=" " alt="" coords="4069,134,4069,167,4063,167,4063,134"/>
-<area shape="rect" title=" " alt="" coords="4161,189,4230,214"/>
-<area shape="poly" title=" " alt="" coords="4096,131,4168,179,4165,183,4093,136"/>
-<area shape="rect" title=" " alt="" coords="4254,189,4329,214"/>
-<area shape="poly" title=" " alt="" coords="4116,131,4250,181,4248,186,4115,136"/>
-<area shape="poly" title=" " alt="" coords="4234,310,4222,312,4045,343,3890,367,3889,361,4044,338,4222,307,4233,305"/>
-<area shape="rect" title=" " alt="" coords="2683,445,2809,471"/>
-<area shape="poly" title=" " alt="" coords="3736,387,2823,454,2823,448,3735,381"/>
-<area shape="rect" title=" " alt="" coords="3252,445,3371,471"/>
-<area shape="poly" title=" " alt="" coords="3736,392,3385,448,3384,443,3735,387"/>
-<area shape="poly" title=" " alt="" coords="3675,220,3441,269,3440,264,3674,215"/>
-<area shape="poly" title=" " alt="" coords="3675,210,3392,231,3208,249,3019,272,3018,267,3208,244,3392,226,3674,204"/>
-<area shape="poly" title=" " alt="" coords="3675,213,3479,237,3230,272,3229,266,3478,232,3674,208"/>
-<area shape="poly" title=" " alt="" coords="3815,209,4023,237,4220,266,4220,272,4022,242,3815,214"/>
-<area shape="rect" title=" " alt="" coords="4043,269,4209,309"/>
-<area shape="poly" title=" " alt="" coords="3816,216,4030,264,4029,269,3814,221"/>
-<area shape="rect" title=" " alt="" coords="3461,269,3647,309"/>
-<area shape="poly" title=" " alt="" coords="3704,224,3609,266,3607,261,3702,219"/>
-<area shape="rect" title=" " alt="" coords="3671,269,3818,309"/>
-<area shape="poly" title=" " alt="" coords="3747,222,3747,255,3742,255,3742,222"/>
-<area shape="poly" title=" " alt="" coords="4654,136,4610,174,4607,170,4651,132"/>
-<area shape="rect" title=" " alt="" coords="5350,189,5417,214"/>
-<area shape="poly" title=" " alt="" coords="4745,129,4757,131,4845,142,4920,146,5049,147,5111,147,5177,151,5252,161,5339,179,5348,181,5346,186,5337,184,5251,166,5177,156,5111,152,5049,152,4920,152,4845,147,4756,136,4744,134"/>
-<area shape="rect" title=" " alt="" coords="5134,189,5209,214"/>
-<area shape="poly" title=" " alt="" coords="4745,128,4757,131,4858,145,4937,152,5016,160,5116,179,5128,182,5127,187,5115,184,5015,165,4936,157,4857,150,4756,136,4744,134"/>
-<area shape="rect" title=" " alt="" coords="5233,189,5325,214"/>
-<area shape="poly" title=" " alt="" coords="4745,128,4757,131,4887,146,4989,151,5092,158,5221,179,5235,182,5234,187,5220,184,5091,163,4989,157,4887,152,4756,136,4744,134"/>
-<area shape="poly" title=" " alt="" coords="1920,208,2155,231,2264,247,2343,267,2361,277,2372,288,2384,298,2400,307,2441,316,2502,324,2675,335,2896,343,3141,348,3889,355,4380,371,4379,376,3889,360,3141,354,2896,349,2675,341,2501,329,2440,321,2398,312,2380,303,2369,292,2357,281,2341,272,2263,252,2154,236,1920,213"/>
-<area shape="poly" title=" " alt="" coords="1920,202,2321,208,2866,221,3415,240,3648,252,3829,267,3828,272,3648,258,3415,245,2866,226,2321,213,1920,207"/>
-<area shape="poly" title=" " alt="" coords="1920,201,2159,205,2481,215,2850,235,3227,267,3226,272,2849,240,2481,221,2159,210,1920,206"/>
-<area shape="poly" title=" " alt="" coords="1920,204,2312,223,2558,241,2809,267,2809,272,2558,246,2312,228,1920,209"/>
-<area shape="poly" title=" " alt="" coords="1920,202,2126,207,2396,218,2703,238,3015,267,3015,272,2702,243,2396,224,2126,213,1920,207"/>
-<area shape="poly" title=" " alt="" coords="1676,207,1585,213,1493,224,1415,243,1386,256,1367,271,1359,290,1360,298,1367,307,1392,325,1435,341,1494,356,1567,369,1743,393,1946,412,2360,439,2669,452,2669,457,2360,444,1945,418,1742,398,1566,375,1493,361,1434,346,1390,329,1363,311,1356,300,1353,289,1363,268,1383,251,1413,238,1492,219,1584,207,1675,202"/>
-<area shape="poly" title=" " alt="" coords="1920,208,2132,230,2230,246,2299,267,2313,277,2322,288,2330,298,2343,307,2419,334,2522,359,2644,381,2776,400,3037,430,3238,448,3238,454,3037,435,2776,405,2643,386,2521,364,2417,339,2341,312,2327,302,2318,291,2310,281,2297,272,2229,251,2131,235,1920,213"/>
-<area shape="rect" title=" " alt="" coords="1377,269,1526,309"/>
-<area shape="poly" title=" " alt="" coords="1752,217,1540,269,1539,264,1751,211"/>
-<area shape="rect" title=" " alt="" coords="1550,269,1699,309"/>
-<area shape="poly" title=" " alt="" coords="1776,217,1676,266,1674,261,1773,212"/>
-<area shape="rect" title=" " alt="" coords="1723,269,1873,309"/>
-<area shape="poly" title=" " alt="" coords="1801,214,1801,255,1795,255,1795,214"/>
-<area shape="rect" title=" " alt="" coords="1897,277,2059,302"/>
-<area shape="poly" title=" " alt="" coords="1823,212,1942,268,1940,273,1821,217"/>
-<area shape="rect" title=" " alt="" coords="2083,277,2286,302"/>
-<area shape="poly" title=" " alt="" coords="1850,211,2121,271,2120,276,1849,217"/>
-<area shape="rect" title=" " alt="" coords="5,277,167,302"/>
-<area shape="poly" title=" " alt="" coords="1676,208,913,229,489,248,312,259,178,272,148,277,147,271,178,267,312,254,488,243,913,224,1676,203"/>
-<area shape="rect" title=" " alt="" coords="191,277,413,302"/>
-<area shape="poly" title=" " alt="" coords="1676,207,1444,213,1133,224,781,243,425,272,382,277,382,272,424,267,781,238,1133,219,1444,207,1676,202"/>
-<area shape="rect" title=" " alt="" coords="437,269,636,309"/>
-<area shape="poly" title=" " alt="" coords="1676,208,1228,226,942,245,650,272,649,267,941,239,1228,221,1676,203"/>
-<area shape="rect" title=" " alt="" coords="660,269,845,309"/>
-<area shape="poly" title=" " alt="" coords="1676,210,1314,230,1089,248,859,272,859,267,1088,242,1313,224,1676,204"/>
-<area shape="rect" title=" " alt="" coords="869,277,1076,302"/>
-<area shape="poly" title=" " alt="" coords="1676,214,1406,237,1088,272,1052,277,1051,272,1087,267,1405,232,1676,209"/>
-<area shape="rect" title=" " alt="" coords="1100,269,1301,309"/>
-<area shape="poly" title=" " alt="" coords="1714,217,1321,272,1315,273,1314,268,1320,267,1714,211"/>
+<area shape="rect" title=" " alt="" coords="2189,5,2399,45"/>
+<area shape="rect" href="PassDetail_8h.html" title=" " alt="" coords="478,101,593,126"/>
+<area shape="poly" title=" " alt="" coords="2189,34,607,111,606,106,2188,29"/>
+<area shape="rect" href="AIEVecToLLVM_8h.html" title=" " alt="" coords="5,269,220,309"/>
+<area shape="poly" title=" " alt="" coords="2189,30,1704,34,1042,45,718,54,441,65,239,79,176,87,143,96,120,112,105,130,87,182,84,201,86,220,98,256,93,258,81,221,79,201,82,181,101,128,116,109,141,91,175,82,238,73,441,59,718,48,1042,40,1704,29,2189,25"/>
+<area shape="rect" title=" " alt="" coords="245,277,447,302"/>
+<area shape="poly" title=" " alt="" coords="2189,30,1825,36,1327,47,830,67,623,80,466,96,407,101,353,101,259,99,218,104,178,118,140,143,102,183,94,201,101,220,123,231,167,245,277,271,276,276,165,250,121,236,97,223,88,201,97,180,136,139,176,113,217,99,259,94,353,95,407,96,466,91,623,75,829,62,1327,42,1824,31,2189,25"/>
+<area shape="rect" href="AIEVecAIE1Ops_8h.html" title=" " alt="" coords="1562,181,1749,221"/>
+<area shape="poly" title=" " alt="" coords="2189,43,2062,64,1925,96,1808,136,1709,178,1707,173,1806,131,1924,91,2061,59,2188,37"/>
+<area shape="rect" href="AIEVecUtils_8h.html" title=" " alt="" coords="2008,93,2148,133"/>
+<area shape="poly" title=" " alt="" coords="2248,48,2139,91,2137,86,2246,43"/>
+<area shape="rect" href="AIEVecOps_8h.html" title=" " alt="" coords="1773,181,1913,221"/>
+<area shape="poly" title=" " alt="" coords="2189,43,2094,63,2045,78,1998,96,1931,134,1877,175,1873,170,1928,129,1996,91,2043,73,2093,58,2188,38"/>
+<area shape="rect" href="Utils_8h.html" title=" " alt="" coords="2224,93,2364,133"/>
+<area shape="poly" title=" " alt="" coords="2297,46,2297,79,2291,79,2291,46"/>
+<area shape="rect" href="XLLVMDialect_8h.html" title=" " alt="" coords="2909,189,3153,214"/>
+<area shape="poly" title=" " alt="" coords="2264,48,2239,67,2217,88,2207,111,2208,121,2214,131,2290,140,2470,155,2896,187,2895,193,2469,160,2289,145,2211,136,2203,123,2202,110,2213,85,2235,63,2261,43"/>
+<area shape="rect" title=" " alt="" coords="2388,93,2611,133"/>
+<area shape="poly" title=" " alt="" coords="2340,43,2443,86,2441,91,2338,48"/>
+<area shape="rect" title=" " alt="" coords="2635,93,2857,133"/>
+<area shape="poly" title=" " alt="" coords="2394,43,2634,88,2633,93,2393,48"/>
+<area shape="rect" title=" " alt="" coords="2881,93,3030,133"/>
+<area shape="poly" title=" " alt="" coords="2400,33,2612,55,2868,90,2867,96,2612,60,2399,38"/>
+<area shape="rect" title=" " alt="" coords="3054,93,3206,133"/>
+<area shape="poly" title=" " alt="" coords="2400,29,2685,50,2861,68,3041,91,3040,96,2861,73,2685,55,2400,35"/>
+<area shape="rect" title=" " alt="" coords="3230,93,3369,133"/>
+<area shape="poly" title=" " alt="" coords="2400,26,2556,32,2758,44,2985,63,3217,91,3216,96,2984,68,2758,49,2556,38,2399,32"/>
+<area shape="rect" title=" " alt="" coords="3393,101,3555,126"/>
+<area shape="poly" title=" " alt="" coords="2399,26,2585,31,2829,42,3104,61,3381,91,3411,95,3410,101,3380,96,3103,67,2829,48,2584,36,2399,31"/>
+<area shape="rect" title=" " alt="" coords="3579,101,3654,126"/>
+<area shape="poly" title=" " alt="" coords="2400,25,2662,31,2999,42,3329,61,3465,75,3568,91,3579,94,3578,99,3567,96,3464,80,3328,67,2999,47,2662,36,2399,31"/>
+<area shape="rect" href="Conversion_2Passes_8h.html" title=" " alt="" coords="269,189,447,214"/>
+<area shape="poly" title=" " alt="" coords="513,129,395,185,393,180,510,124"/>
+<area shape="rect" title=" " alt="" coords="461,365,609,390"/>
+<area shape="poly" title=" " alt="" coords="538,126,538,351,533,351,533,126"/>
+<area shape="rect" title=" " alt="" coords="244,365,371,390"/>
+<area shape="poly" title=" " alt="" coords="537,127,530,162,517,211,495,264,480,289,461,311,441,329,419,343,372,363,370,358,416,338,438,324,457,307,475,286,490,261,512,209,525,161,531,126"/>
+<area shape="rect" title=" " alt="" coords="111,181,245,221"/>
+<area shape="poly" title=" " alt="" coords="488,129,259,183,258,178,487,123"/>
+<area shape="rect" title=" " alt="" coords="2181,181,2324,221"/>
+<area shape="poly" title=" " alt="" coords="593,113,1346,132,1814,152,2013,164,2168,179,2168,184,2013,170,1813,157,1346,137,593,118"/>
+<area shape="rect" title=" " alt="" coords="2365,269,2541,309"/>
+<area shape="poly" title=" " alt="" coords="593,113,887,118,1305,129,1699,149,1843,162,1893,170,1927,179,1943,188,1953,199,1963,210,1978,219,2030,238,2076,250,2118,255,2158,257,2243,258,2351,267,2351,272,2243,263,2158,263,2117,261,2075,255,2029,243,1975,224,1960,214,1950,203,1940,192,1925,184,1892,175,1842,168,1699,154,1304,135,887,123,593,118"/>
+<area shape="poly" title=" " alt="" coords="326,217,181,267,179,262,324,212"/>
+<area shape="poly" title=" " alt="" coords="359,215,352,263,347,262,354,214"/>
+<area shape="poly" title=" " alt="" coords="206,307,466,359,465,365,205,312"/>
+<area shape="poly" title=" " alt="" coords="156,307,270,357,268,362,154,312"/>
+<area shape="rect" title=" " alt="" coords="74,365,151,390"/>
+<area shape="poly" title=" " alt="" coords="115,310,115,351,110,351,110,310"/>
+<area shape="rect" title=" " alt="" coords="1557,269,1753,309"/>
+<area shape="poly" title=" " alt="" coords="1658,222,1658,255,1653,255,1653,222"/>
+<area shape="rect" title=" " alt="" coords="1778,269,1959,309"/>
+<area shape="poly" title=" " alt="" coords="1703,219,1810,262,1808,267,1701,224"/>
+<area shape="rect" title=" " alt="" coords="1983,269,2170,309"/>
+<area shape="poly" title=" " alt="" coords="1748,219,1971,264,1970,269,1747,224"/>
+<area shape="rect" href="AIEVecAIE1Dialect_8h.html" title=" " alt="" coords="573,277,727,302"/>
+<area shape="poly" title=" " alt="" coords="1562,208,1201,226,971,245,740,272,712,277,711,271,739,267,970,240,1200,221,1562,203"/>
+<area shape="rect" title=" " alt="" coords="751,269,960,309"/>
+<area shape="poly" title=" " alt="" coords="1562,213,1302,236,974,272,974,267,1301,231,1562,207"/>
+<area shape="poly" title=" " alt="" coords="2118,131,2203,173,2201,178,2115,136"/>
+<area shape="poly" title=" " alt="" coords="2008,131,1762,181,1761,176,2007,126"/>
+<area shape="rect" href="AIEVecDialect_8h.html" title=" " alt="" coords="2195,269,2340,309"/>
+<area shape="poly" title=" " alt="" coords="2149,128,2269,157,2316,170,2339,179,2346,201,2340,224,2325,244,2307,263,2303,259,2321,241,2335,221,2341,202,2335,183,2314,175,2268,162,2148,133"/>
+<area shape="rect" href="AIEVecTypes_8h.html" title=" " alt="" coords="2769,357,2909,397"/>
+<area shape="poly" title=" " alt="" coords="2149,125,2249,147,2359,179,2460,216,2554,267,2579,288,2605,307,2681,338,2756,358,2755,363,2679,343,2602,312,2576,292,2551,272,2458,221,2357,184,2248,152,2148,130"/>
+<area shape="poly" title=" " alt="" coords="2027,136,1908,179,1907,174,2026,131"/>
+<area shape="rect" title=" " alt="" coords="2616,181,2756,221"/>
+<area shape="poly" title=" " alt="" coords="2149,127,2168,131,2288,147,2382,155,2477,163,2597,179,2603,180,2602,185,2596,184,2476,168,2382,160,2287,152,2167,136,2148,133"/>
+<area shape="rect" title=" " alt="" coords="1989,189,2058,214"/>
+<area shape="poly" title=" " alt="" coords="2068,135,2040,178,2036,175,2064,132"/>
+<area shape="rect" title=" " alt="" coords="2082,189,2157,214"/>
+<area shape="poly" title=" " alt="" coords="2090,132,2110,175,2105,177,2085,135"/>
+<area shape="poly" title=" " alt="" coords="2341,304,2353,307,2571,340,2756,364,2755,369,2570,346,2352,312,2340,310"/>
+<area shape="rect" title=" " alt="" coords="4016,445,4143,471"/>
+<area shape="poly" title=" " alt="" coords="2910,380,4003,449,4002,454,2909,386"/>
+<area shape="rect" title=" " alt="" coords="3351,445,3469,471"/>
+<area shape="poly" title=" " alt="" coords="2910,386,3338,444,3337,449,2910,391"/>
+<area shape="poly" title=" " alt="" coords="1803,224,1710,266,1708,261,1801,219"/>
+<area shape="poly" title=" " alt="" coords="1852,221,1862,255,1857,257,1846,222"/>
+<area shape="poly" title=" " alt="" coords="1895,219,2014,262,2012,267,1894,224"/>
+<area shape="poly" title=" " alt="" coords="1914,215,1933,219,2181,267,2180,272,1932,224,1913,220"/>
+<area shape="rect" title=" " alt="" coords="984,269,1151,309"/>
+<area shape="poly" title=" " alt="" coords="1774,222,1761,224,1596,243,1465,250,1333,255,1165,272,1164,267,1333,250,1465,244,1595,238,1760,219,1773,217"/>
+<area shape="rect" title=" " alt="" coords="1175,269,1362,309"/>
+<area shape="poly" title=" " alt="" coords="1774,222,1761,224,1655,240,1571,249,1485,258,1376,272,1376,266,1485,252,1570,244,1654,235,1760,219,1773,216"/>
+<area shape="rect" title=" " alt="" coords="1386,269,1533,309"/>
+<area shape="poly" title=" " alt="" coords="1774,221,1761,224,1547,271,1546,266,1760,219,1772,216"/>
+<area shape="poly" title=" " alt="" coords="2287,135,2270,170,2265,168,2282,132"/>
+<area shape="rect" title=" " alt="" coords="3178,189,3245,214"/>
+<area shape="poly" title=" " alt="" coords="2365,129,2377,131,2497,144,2599,148,2773,144,2857,142,2947,145,3048,156,3167,179,3176,181,3174,186,3165,184,3048,161,2947,150,2857,147,2773,149,2599,153,2496,149,2376,136,2364,134"/>
+<area shape="rect" title=" " alt="" coords="3269,189,3343,214"/>
+<area shape="poly" title=" " alt="" coords="2365,129,2377,131,2510,145,2624,150,2818,145,2912,142,3012,145,3125,156,3257,179,3268,182,3267,187,3256,184,3124,161,3012,150,2912,147,2819,150,2624,155,2510,150,2376,136,2364,134"/>
+<area shape="rect" title=" " alt="" coords="3368,189,3460,214"/>
+<area shape="poly" title=" " alt="" coords="2365,129,2377,131,2525,146,2651,152,2763,151,2867,148,2971,145,3082,147,3208,157,3356,179,3371,182,3370,187,3355,184,3208,162,3082,152,2971,150,2867,153,2763,157,2651,157,2525,152,2376,136,2364,134"/>
+<area shape="poly" title=" " alt="" coords="3105,211,3166,219,3723,228,4085,241,4209,252,4248,259,4268,267,4275,278,4278,289,4275,301,4267,312,4226,318,4123,324,3762,336,2642,356,623,378,623,373,2642,350,3762,330,4123,319,4226,313,4265,307,4271,298,4273,289,4271,280,4264,271,4247,264,4209,257,4085,247,3723,234,3166,224,3104,217"/>
+<area shape="poly" title=" " alt="" coords="2954,217,2555,276,2554,270,2954,211"/>
+<area shape="poly" title=" " alt="" coords="2909,215,2769,224,2489,236,2269,240,2049,248,1767,272,1767,267,2049,243,2269,235,2489,231,2769,219,2909,209"/>
+<area shape="poly" title=" " alt="" coords="2909,214,2769,224,2547,235,2372,241,2198,250,1974,272,1973,267,2197,245,2372,235,2546,230,2769,219,2909,209"/>
+<area shape="poly" title=" " alt="" coords="2909,214,2509,245,2184,272,2183,267,2509,239,2909,209"/>
+<area shape="poly" title=" " alt="" coords="3104,211,3166,219,3735,228,4104,241,4231,252,4270,259,4290,267,4301,281,4306,294,4304,321,4288,347,4262,371,4229,393,4193,412,4124,443,4122,438,4190,408,4226,388,4258,366,4284,343,4299,319,4301,295,4296,283,4287,271,4269,264,4230,257,4104,246,3734,233,3166,224,3104,217"/>
+<area shape="poly" title=" " alt="" coords="3109,211,3166,219,3438,229,3604,242,3664,252,3685,259,3697,267,3709,283,3714,299,3715,314,3710,329,3688,355,3654,379,3611,400,3564,418,3474,445,3472,439,3562,413,3609,395,3651,374,3684,351,3705,326,3709,313,3709,300,3704,286,3694,271,3682,264,3663,258,3604,247,3438,234,3166,224,3108,217"/>
+<area shape="rect" title=" " alt="" coords="3758,269,3907,309"/>
+<area shape="poly" title=" " alt="" coords="3108,211,3166,219,3327,233,3453,240,3579,248,3740,267,3745,267,3744,273,3739,272,3578,253,3453,245,3327,238,3166,224,3108,217"/>
+<area shape="rect" title=" " alt="" coords="3931,269,4081,309"/>
+<area shape="poly" title=" " alt="" coords="3106,211,3166,219,3376,234,3541,238,3706,245,3803,253,3918,267,3917,272,3803,258,3706,250,3540,243,3375,239,3166,224,3106,217"/>
+<area shape="rect" title=" " alt="" coords="4105,269,4254,309"/>
+<area shape="poly" title=" " alt="" coords="3105,211,3166,219,3306,230,3424,235,3627,237,3831,242,3950,251,4091,267,4091,272,3950,256,3831,247,3627,242,3424,240,3305,235,3166,224,3105,217"/>
+<area shape="rect" title=" " alt="" coords="4379,277,4542,302"/>
+<area shape="poly" title=" " alt="" coords="3104,211,3166,219,3348,232,3502,238,3764,238,4026,241,4180,249,4361,267,4394,272,4394,277,4360,272,4179,255,4026,246,3764,243,3502,243,3347,237,3166,224,3104,217"/>
+<area shape="rect" title=" " alt="" coords="2615,277,2818,302"/>
+<area shape="poly" title=" " alt="" coords="2990,217,2773,276,2771,270,2988,212"/>
+<area shape="rect" title=" " alt="" coords="2843,277,3004,302"/>
+<area shape="poly" title=" " alt="" coords="3018,216,2950,270,2947,266,3015,212"/>
+<area shape="rect" title=" " alt="" coords="3028,277,3251,302"/>
+<area shape="poly" title=" " alt="" coords="3048,212,3116,266,3112,270,3044,216"/>
+<area shape="rect" title=" " alt="" coords="3275,269,3473,309"/>
+<area shape="poly" title=" " alt="" coords="3078,211,3287,263,3285,269,3077,217"/>
+<area shape="rect" title=" " alt="" coords="3497,269,3683,309"/>
+<area shape="poly" title=" " alt="" coords="3111,211,3484,266,3483,272,3110,217"/>
 </map>
 </div>
 </div>
@@ -206,6 +212,22 @@ Classes</h2></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classxilinx_1_1aievec_1_1AddOpConversion.html">xilinx::aievec::AddOpConversion</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classxilinx_1_1aievec_1_1AddElemOpAIE2Conversion.html">xilinx::aievec::AddElemOpAIE2Conversion</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structxilinx_1_1aievec_1_1AddElemOpAIE2Conversion_1_1DecodedAddElemOp.html">xilinx::aievec::AddElemOpAIE2Conversion::DecodedAddElemOp</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classxilinx_1_1aievec_1_1SubElemOpAIE2Conversion.html">xilinx::aievec::SubElemOpAIE2Conversion</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structxilinx_1_1aievec_1_1SubElemOpAIE2Conversion_1_1DecodedSubElemOp.html">xilinx::aievec::SubElemOpAIE2Conversion::DecodedSubElemOp</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classxilinx_1_1aievec_1_1AddElemOpAIE2pConversion.html">xilinx::aievec::AddElemOpAIE2pConversion</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structxilinx_1_1aievec_1_1AddElemOpAIE2pConversion_1_1DecodedAddElemOp.html">xilinx::aievec::AddElemOpAIE2pConversion::DecodedAddElemOp</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classxilinx_1_1aievec_1_1SubElemOpAIE2pConversion.html">xilinx::aievec::SubElemOpAIE2pConversion</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structxilinx_1_1aievec_1_1SubElemOpAIE2pConversion_1_1DecodedSubElemOp.html">xilinx::aievec::SubElemOpAIE2pConversion::DecodedSubElemOp</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classxilinx_1_1aievec_1_1SubOpConversion.html">xilinx::aievec::SubOpConversion</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classxilinx_1_1aievec_1_1FMAOpConversion.html">xilinx::aievec::FMAOpConversion</a></td></tr>
@@ -216,15 +238,27 @@ Classes</h2></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structxilinx_1_1aievec_1_1MulElemOpConversion_1_1DecodedMulElemOp.html">xilinx::aievec::MulElemOpConversion::DecodedMulElemOp</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classxilinx_1_1aievec_1_1UPSOpConversion.html">xilinx::aievec::UPSOpConversion</a></td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classxilinx_1_1aievec_1_1MulElemOpAIE2pConversion.html">xilinx::aievec::MulElemOpAIE2pConversion</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classxilinx_1_1aievec_1_1SRSOpConversion.html">xilinx::aievec::SRSOpConversion</a></td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structxilinx_1_1aievec_1_1MulElemOpAIE2pConversion_1_1DecodedMulElemOp.html">xilinx::aievec::MulElemOpAIE2pConversion::DecodedMulElemOp</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classxilinx_1_1aievec_1_1FMAElemOpAIE2pConversion.html">xilinx::aievec::FMAElemOpAIE2pConversion</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classxilinx_1_1aievec_1_1UPSOpAIE2Conversion.html">xilinx::aievec::UPSOpAIE2Conversion</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classxilinx_1_1aievec_1_1UPSOpAIE2pConversion.html">xilinx::aievec::UPSOpAIE2pConversion</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classxilinx_1_1aievec_1_1SRSOpAIE2Conversion.html">xilinx::aievec::SRSOpAIE2Conversion</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classxilinx_1_1aievec_1_1SRSOpAIE2pConversion.html">xilinx::aievec::SRSOpAIE2pConversion</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classxilinx_1_1aievec_1_1UPDOpConversion.html">xilinx::aievec::UPDOpConversion</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classxilinx_1_1aievec_1_1ConcatOpConversion.html">xilinx::aievec::ConcatOpConversion</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classxilinx_1_1aievec_1_1ExtOpConversion.html">xilinx::aievec::ExtOpConversion</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classxilinx_1_1aievec_1_1ExtOpAIE2pConversion.html">xilinx::aievec::ExtOpAIE2pConversion</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classxilinx_1_1aievec_1_1SelectOpConversion.html">xilinx::aievec::SelectOpConversion</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -238,9 +272,21 @@ Classes</h2></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classxilinx_1_1aievec_1_1MinOpConversion.html">xilinx::aievec::MinOpConversion</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classxilinx_1_1aievec_1_1MaxOpAIE2pConversion.html">xilinx::aievec::MaxOpAIE2pConversion</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classxilinx_1_1aievec_1_1MinOpAIE2pConversion.html">xilinx::aievec::MinOpAIE2pConversion</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classxilinx_1_1aievec_1_1CmpOpConversionBase.html">xilinx::aievec::CmpOpConversionBase&lt; MaxLtBf16IntrOp, MinGeBf16IntrOp, MaxLt32IntrOp, MinGe32IntrOp, MaxLt16IntrOp, MinGe16IntrOp &gt;</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classxilinx_1_1aievec_1_1SelOpConversionBase.html">xilinx::aievec::SelOpConversionBase&lt; Sel16IntrOp, Sel32IntrOp &gt;</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classxilinx_1_1aievec_1_1BroadcastScalarOpConversion.html">xilinx::aievec::BroadcastScalarOpConversion</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classxilinx_1_1aievec_1_1BroadcastScalarOpAIE2pConversion.html">xilinx::aievec::BroadcastScalarOpAIE2pConversion</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classxilinx_1_1aievec_1_1ShiftOpConversion.html">xilinx::aievec::ShiftOpConversion</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classxilinx_1_1aievec_1_1ShiftOpAIE2pConversion.html">xilinx::aievec::ShiftOpAIE2pConversion</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classxilinx_1_1aievec_1_1ExtractElemOpConversion.html">xilinx::aievec::ExtractElemOpConversion</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -248,9 +294,27 @@ Classes</h2></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classxilinx_1_1aievec_1_1MatMulOpConversion.html">xilinx::aievec::MatMulOpConversion</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classxilinx_1_1aievec_1_1MatMulOpAIE2pConversion.html">xilinx::aievec::MatMulOpAIE2pConversion</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classxilinx_1_1aievec_1_1FoldAIECastOps.html">xilinx::aievec::FoldAIECastOps</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classxilinx_1_1aievec_1_1FoldAIECastOpsAIE2p.html">xilinx::aievec::FoldAIECastOpsAIE2p</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classxilinx_1_1aievec_1_1ShuffleOpConversion.html">xilinx::aievec::ShuffleOpConversion</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classxilinx_1_1aievec_1_1InvOpAIE2pConversion.html">xilinx::aievec::InvOpAIE2pConversion</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classxilinx_1_1aievec_1_1ExpOpAIE2pConversion.html">xilinx::aievec::ExpOpAIE2pConversion</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classxilinx_1_1aievec_1_1TanhOpAIE2pConversion.html">xilinx::aievec::TanhOpAIE2pConversion</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classxilinx_1_1aievec_1_1RsqrtOpAIE2pConversion.html">xilinx::aievec::RsqrtOpAIE2pConversion</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classxilinx_1_1aievec_1_1FdivOpConversion.html">xilinx::aievec::FdivOpConversion</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classxilinx_1_1aievec_1_1ExtractElemOpAIE2pConversion.html">xilinx::aievec::ExtractElemOpAIE2pConversion</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classxilinx_1_1aievec_1_1ConcatOpAIE2pConversion.html">xilinx::aievec::ConcatOpAIE2pConversion</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structxilinx_1_1aievec_1_1ConvertAIEVecToLLVMPass.html">xilinx::aievec::ConvertAIEVecToLLVMPass</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -262,6 +326,29 @@ Namespaces</h2></td></tr>
 <tr class="memitem:namespacexilinx_1_1aievec" id="r_namespacexilinx_1_1aievec"><td class="memItemLeft" align="right" valign="top">namespace &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacexilinx_1_1aievec.html">xilinx::aievec</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table><table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="define-members" name="define-members"></a>
+Macros</h2></td></tr>
+<tr class="memitem:aac08beeeed14e67583b84dc764dca923" id="r_aac08beeeed14e67583b84dc764dca923"><td class="memItemLeft" align="right" valign="top">#define&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="AIEVecToLLVM_8cpp.html#aac08beeeed14e67583b84dc764dca923">GEN_PASS_DEF_CONVERTAIEVECTOLLVM</a></td></tr>
+<tr class="separator:aac08beeeed14e67583b84dc764dca923"><td class="memSeparator" colspan="2">&#160;</td></tr>
+</table><table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="typedef-members" name="typedef-members"></a>
+Typedefs</h2></td></tr>
+<tr class="memitem:a18cd1442e9f6d4731b48794a858f42eb" id="r_a18cd1442e9f6d4731b48794a858f42eb"><td class="memItemLeft" align="right" valign="top">using&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacexilinx_1_1aievec.html#a18cd1442e9f6d4731b48794a858f42eb">xilinx::aievec::CmpOpConversion</a> = <a class="el" href="classxilinx_1_1aievec_1_1CmpOpConversionBase.html">CmpOpConversionBase</a>&lt; xllvm::VectorMaxLtBf16IntrOp, xllvm::VectorMinGeBf16IntrOp, xllvm::VectorMaxLt32IntrOp, xllvm::VectorMinGe32IntrOp, xllvm::VectorMaxLt16IntrOp, xllvm::VectorMinGe16IntrOp &gt;</td></tr>
+<tr class="separator:a18cd1442e9f6d4731b48794a858f42eb"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ac785b160f7a0db9cc3e114a2a9d4ce60" id="r_ac785b160f7a0db9cc3e114a2a9d4ce60"><td class="memItemLeft" align="right" valign="top">using&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacexilinx_1_1aievec.html#ac785b160f7a0db9cc3e114a2a9d4ce60">xilinx::aievec::CmpOpAIE2pConversion</a> = <a class="el" href="classxilinx_1_1aievec_1_1CmpOpConversionBase.html">CmpOpConversionBase</a>&lt; xllvm::VectorMaxLtBf16AIE2pIntrOp, xllvm::VectorMinGeBf16AIE2pIntrOp, xllvm::VectorMaxLt32AIE2pIntrOp, xllvm::VectorMinGe32AIE2pIntrOp, xllvm::VectorMaxLt16AIE2pIntrOp, xllvm::VectorMinGe16AIE2pIntrOp &gt;</td></tr>
+<tr class="separator:ac785b160f7a0db9cc3e114a2a9d4ce60"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a51eebe2bd5b41cf26fa08362fc41b404" id="r_a51eebe2bd5b41cf26fa08362fc41b404"><td class="memItemLeft" align="right" valign="top">using&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacexilinx_1_1aievec.html#a51eebe2bd5b41cf26fa08362fc41b404">xilinx::aievec::SelOpConversion</a> = <a class="el" href="classxilinx_1_1aievec_1_1SelOpConversionBase.html">SelOpConversionBase</a>&lt; xllvm::VectorSel16IntrOp, xllvm::VectorSel32IntrOp &gt;</td></tr>
+<tr class="separator:a51eebe2bd5b41cf26fa08362fc41b404"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a48834d306861bc368be64f6a1e25d45e" id="r_a48834d306861bc368be64f6a1e25d45e"><td class="memItemLeft" align="right" valign="top">using&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacexilinx_1_1aievec.html#a48834d306861bc368be64f6a1e25d45e">xilinx::aievec::SelOpAIE2pConversion</a> = <a class="el" href="classxilinx_1_1aievec_1_1SelOpConversionBase.html">SelOpConversionBase</a>&lt; xllvm::VectorSel16AIE2pIntrOp, xllvm::VectorSel32AIE2pIntrOp &gt;</td></tr>
+<tr class="separator:a48834d306861bc368be64f6a1e25d45e"><td class="memSeparator" colspan="2">&#160;</td></tr>
+</table><table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="enum-members" name="enum-members"></a>
+Enumerations</h2></td></tr>
+<tr class="memitem:a99d3cb72f0764f395feb55a379e792c9" id="r_a99d3cb72f0764f395feb55a379e792c9"><td class="memItemLeft" align="right" valign="top">enum class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacexilinx_1_1aievec.html#a99d3cb72f0764f395feb55a379e792c9">xilinx::aievec::AIEArch</a> { <a class="el" href="namespacexilinx_1_1aievec.html#a99d3cb72f0764f395feb55a379e792c9a40bccc3bdca296053c771114097848e5">xilinx::aievec::AIE2</a>
+, <a class="el" href="namespacexilinx_1_1aievec.html#a99d3cb72f0764f395feb55a379e792c9abd3bcf3e028c7a365b4fca53544bdafa">xilinx::aievec::AIE2p</a>
+ }</td></tr>
+<tr class="separator:a99d3cb72f0764f395feb55a379e792c9"><td class="memSeparator" colspan="2">&#160;</td></tr>
+</table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="func-members" name="func-members"></a>
 Functions</h2></td></tr>
 <tr class="memitem:ae9f6f26184cce2e2cb9cb76a3f610077" id="r_ae9f6f26184cce2e2cb9cb76a3f610077"><td class="memItemLeft" align="right" valign="top">std::string&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacexilinx_1_1aievec.html#ae9f6f26184cce2e2cb9cb76a3f610077">xilinx::aievec::getVectorTypeString</a> (VectorType type, <a class="el" href="classbool.html">bool</a> abbrev=false, <a class="el" href="classbool.html">bool</a> acc=false)</td></tr>
@@ -272,15 +359,40 @@ Functions</h2></td></tr>
 <tr class="separator:a144f18e73a75f872424ecf58a5057572"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a51514c9fb495313d56fc00eadc41630f" id="r_a51514c9fb495313d56fc00eadc41630f"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacexilinx_1_1aievec.html#a51514c9fb495313d56fc00eadc41630f">xilinx::aievec::encodeConf</a> (uint32_t conf[2], const <a class="el" href="structxilinx_1_1aievec_1_1BufferParams.html">BufferParams</a> &amp;x, const <a class="el" href="structxilinx_1_1aievec_1_1BufferParams.html">BufferParams</a> &amp;z, <a class="el" href="classbool.html">bool</a> sub)</td></tr>
 <tr class="separator:a51514c9fb495313d56fc00eadc41630f"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a368d6d2496bae4f6cbf43a9655c62f52" id="r_a368d6d2496bae4f6cbf43a9655c62f52"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacexilinx_1_1aievec.html#a368d6d2496bae4f6cbf43a9655c62f52">xilinx::aievec::populateAIEVecToLLVMConversionPatterns</a> (mlir::LLVMTypeConverter &amp;converter, mlir::RewritePatternSet &amp;patterns, Aie2Fp32Emulation aie2Fp32EmulationOption)</td></tr>
-<tr class="separator:a368d6d2496bae4f6cbf43a9655c62f52"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a4470a607f048ef6c205656ec46edd4cb" id="r_a4470a607f048ef6c205656ec46edd4cb"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacexilinx_1_1aievec.html#a4470a607f048ef6c205656ec46edd4cb">xilinx::aievec::populateAIEVecToLLVMCommonConversionPatterns</a> (mlir::LLVMTypeConverter &amp;converter, mlir::RewritePatternSet &amp;patterns)</td></tr>
+<tr class="separator:a4470a607f048ef6c205656ec46edd4cb"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aa007806b60b12dbc823e0b9f3465b384" id="r_aa007806b60b12dbc823e0b9f3465b384"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacexilinx_1_1aievec.html#aa007806b60b12dbc823e0b9f3465b384">xilinx::aievec::populateAIEVecToLLVMAIE2ConversionPatterns</a> (mlir::LLVMTypeConverter &amp;converter, mlir::RewritePatternSet &amp;patterns, Aie2Fp32Emulation aie2Fp32EmulationOption)</td></tr>
+<tr class="separator:aa007806b60b12dbc823e0b9f3465b384"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a839c8414e0ef7b5a6882350523efc8bf" id="r_a839c8414e0ef7b5a6882350523efc8bf"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacexilinx_1_1aievec.html#a839c8414e0ef7b5a6882350523efc8bf">xilinx::aievec::populateAIEVecToLLVMAIE2pConversionPatterns</a> (mlir::LLVMTypeConverter &amp;converter, mlir::RewritePatternSet &amp;patterns)</td></tr>
+<tr class="separator:a839c8414e0ef7b5a6882350523efc8bf"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a6ccaf1484220db800ea433e4dd5f4f94" id="r_a6ccaf1484220db800ea433e4dd5f4f94"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacexilinx_1_1aievec.html#a6ccaf1484220db800ea433e4dd5f4f94">xilinx::aievec::populateAIEVecToLLVMConversionPatterns</a> (mlir::LLVMTypeConverter &amp;converter, mlir::RewritePatternSet &amp;patterns, Aie2Fp32Emulation aie2Fp32EmulationOption, StringRef aieTarget)</td></tr>
+<tr class="separator:a6ccaf1484220db800ea433e4dd5f4f94"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:adaaa96f89dfc8552e4539f7b1db04c73" id="r_adaaa96f89dfc8552e4539f7b1db04c73"><td class="memItemLeft" align="right" valign="top">std::unique_ptr&lt; mlir::OperationPass&lt; mlir::ModuleOp &gt; &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacexilinx_1_1aievec.html#adaaa96f89dfc8552e4539f7b1db04c73">xilinx::aievec::createConvertAIEVecToLLVMPass</a> ()</td></tr>
 <tr class="separator:adaaa96f89dfc8552e4539f7b1db04c73"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a127ba2912d211e67eec8db13c7a2435c" id="r_a127ba2912d211e67eec8db13c7a2435c"><td class="memItemLeft" align="right" valign="top">std::unique_ptr&lt; mlir::OperationPass&lt; mlir::ModuleOp &gt; &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="namespacexilinx_1_1aievec.html#a127ba2912d211e67eec8db13c7a2435c">xilinx::aievec::createConvertAIEVecToLLVMPass</a> (const xilinx::ConvertAIEVecToLLVMOptions &amp;options)</td></tr>
+<tr class="separator:a127ba2912d211e67eec8db13c7a2435c"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
+<h2 class="groupheader">Macro Definition Documentation</h2>
+<a id="aac08beeeed14e67583b84dc764dca923" name="aac08beeeed14e67583b84dc764dca923"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aac08beeeed14e67583b84dc764dca923">&#9670;&#160;</a></span>GEN_PASS_DEF_CONVERTAIEVECTOLLVM</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">#define GEN_PASS_DEF_CONVERTAIEVECTOLLVM</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p class="definition">Definition at line <a class="el" href="AIEVecToLLVM_8cpp_source.html#l00030">30</a> of file <a class="el" href="AIEVecToLLVM_8cpp_source.html">AIEVecToLLVM.cpp</a>.</p>
+
+</div>
+</div>
 </div><!-- contents -->
 <!-- start footer part -->
 <hr class="footer"/><address class="footer"><small>
-Generated on Thu Jun 19 2025 15:51:39 for MLIR-AIE by&#160;<a href="https://www.doxygen.org/index.html"><img class="footer" src="doxygen.svg" width="104" height="31" alt="doxygen"/></a> 1.9.8
+Generated on Fri May 15 2026 17:57:32 for MLIR-AIE by&#160;<a href="https://www.doxygen.org/index.html"><img class="footer" src="doxygen.svg" width="104" height="31" alt="doxygen"/></a> 1.9.8
 </small></address>
 </body>
 </html>

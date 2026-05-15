@@ -1,5 +1,5 @@
 var searchData=
 [
-  ['zeros_0',['zeros',['../classiron_1_1tensor_1_1Tensor.html#a7beb3886e54a539231c50ba256ab788e',1,'iron.tensor.Tensor.zeros()'],['../namespaceiron_1_1tensor.html#ad45d67eaf605d17e8ba66ca96e1d46fe',1,'iron.tensor.zeros']]],
-  ['zeros_5flike_1',['zeros_like',['../classiron_1_1tensor_1_1Tensor.html#a38efca8dd0d235414c435e35b3ccc545',1,'iron.tensor.Tensor.zeros_like()'],['../namespaceiron_1_1tensor.html#a098a0656106915d53987a30302565cd3',1,'iron.tensor.zeros_like']]]
+  ['zeros_0',['zeros',['../classutils_1_1hostruntime_1_1tensor__class_1_1Tensor.html#a9b728bca1809ea091467c5435fb052e1',1,'utils.hostruntime.tensor_class.Tensor.zeros()'],['../namespaceutils.html#a17e481382e5c752b0c882bc597fc17f4',1,'utils.zeros()']]],
+  ['zeros_5flike_1',['zeros_like',['../classutils_1_1hostruntime_1_1tensor__class_1_1Tensor.html#ac53fe382469f491a12dc0b9e2f703535',1,'utils.hostruntime.tensor_class.Tensor.zeros_like()'],['../namespaceutils.html#a0c059f72704c10fd9bb0f1f2e1cf2684',1,'utils.zeros_like()']]]
 ];

@@ -21,6 +21,27 @@ consistent view of the memory map of a system.
 -alloc-scheme : Select allocation scheme: basic-sequential or bank-aware. Default is bank-aware, falling back to basic-sequential if it fails.
 ```
 
+### `-aie-assign-core-link-files`
+
+_Infer per-core link_files from func-level link_with attributes_
+
+Walks each aie.core and collects the set of external object files it needs
+by tracing direct func.call edges to func.func declarations that carry a
+"link_with" string attribute.  The result is stored in the CoreOp's
+"link_files" StrArrayAttr.
+
+Only direct calls (func.call) are resolved.  Indirect calls
+(func.call_indirect) inside a core body emit a warning and are not
+resolved; add a direct func.call to the required func.func declaration
+so the pass can trace the dependency.
+
+Core-level "link_with" (deprecated) is also migrated: its value is
+folded into the set and the attribute is removed from the CoreOp.
+
+func.func declarations that carry "link_with" but are never called from
+any core emit a warning; their object files will not appear in any
+core's link_files.
+
 ### `-aie-assign-lock-ids`
 
 _Assigns the lockIDs of locks that do not have IDs._
@@ -88,6 +109,65 @@ streaming interconnects which overlay on top of the design.
 -route-shim-to-tile-ctrl : Flag to generate routing between shim dma DMA and tile CTRL ports, for configuration.
 ```
 
+### `-aie-hoist-vector-transfer-pointers`
+
+_Hoist vector transfer pointer computations out of scf.for loops in aie.core regions_
+
+This pass optimizes vector transfer operations inside scf.for loops by hoisting
+pointer computations. It operates on aie.core regions within aie.device operations.
+When vector transfer operations have indices that depend on the loop induction variable,
+the pass:
+
+1. Flattens multi-dimensional memrefs to 1D
+2. Computes a base pointer before the loop
+3. Adds the pointer as a loop iter_arg
+4. Updates the pointer by a constant stride each iteration
+5. Replaces the transfer operations to use the iter_arg pointer
+
+This eliminates redundant index computation and affine.apply operations within
+the loop body, replacing them with simple pointer arithmetic.
+
+This pass must run before scf-to-cf conversion and before cores are outlined
+to functions, since it operates on scf.for loops within aie.core regions.
+
+### `-aie-insert-trace-flows`
+
+_Insert packet flows and runtime sequence trace setup_
+
+For each aie.trace operation, this pass:
+- Creates packet flows from trace ports to shim DMA
+- Groups traces by target shim (minimizes shim usage, ideally 1)
+- Inserts shim buffer descriptors and DMA control setup per shim tile
+- Inserts per-tile timer control register writes
+- Inserts per-shim broadcast and DMA control setup
+
+All trace configuration is injected at the beginning of the runtime
+sequence, before user data transfer operations.
+
+By default, multiple trace streams are routed to the same shim DMA
+channel and drained by a single buffer descriptor. With
+`distribute-channels`, traces are round-robin distributed across two
+S2MM DMA channels per shim tile, each with its own BD. Both channels
+share the same host buffer argument (arg_idx) and are split by offset:
+channel 0 starts at the base offset, channel 1 at base + buffer_size.
+The host must allocate 2x buffer_size for the trace buffer.
+
+With `lateral-routing`, trace destinations are redirected from columns
+with active cores to spare shim NOC columns, reducing data path
+perturbation. Use `lateral-target-col` to force a specific target.
+
+#### Options
+
+```
+-shim-channel        : S2MM DMA channel to use for trace (default: 1)
+-default-bd-id       : Buffer descriptor ID for trace (default: 15)
+-packet-id-start     : Starting packet ID for trace flows (default: 1)
+-burst-length        : DMA burst length for trace transfers (default: 64 bytes)
+-distribute-channels : Distribute traces across multiple S2MM channels per shim tile
+-lateral-routing     : Route traces to spare columns to minimize data path perturbation
+-lateral-target-col  : Force lateral routing target column (-1 = auto-detect nearest spare)
+```
+
 ### `-aie-localize-locks`
 
 _Convert global locks to a core-relative index_
@@ -145,7 +225,24 @@ the original loop.
 #### Options
 
 ```
--dynamic-objFifos : Flag to enable dynamic object fifo lowering in cores instead of loop unrolling.
+-dynamic-objFifos   : Flag to enable dynamic object fifo lowering in cores instead of loop unrolling.
+-packet-sw-objFifos : Flag to enable aie.packetflow lowering from objectfifos.
+```
+
+### `-aie-place-tiles`
+
+_Place logical tiles onto physical AIE tiles_
+
+Sequential placer algorithm places core tiles in a
+column-major order and places fifo-connected Shim/Mem tiles
+near its core tiles. One or more aie.logical_tile operation is mapped
+to one aie.tile.
+
+#### Options
+
+```
+-placer        : Placement algorithm to use (default: sequential_placer)
+-cores-per-col : Limit number of cores per column (-1 = no limit). Spreads cores across columns for better trace packet routing.
 ```
 
 ### `-aie-register-objectFifos`
@@ -172,9 +269,47 @@ Optionally, tileCol and tileRow can specify a single core to export
 #### Options
 
 ```
+-device  : Device to generate code for
 -tilecol : X coordinate of tile to generate code for
 -tilerow : Y coordinate of tile to generate code for
 ```
+
+### `-aie-trace-pack-reg-writes`
+
+_Pack multiple register field writes into single register writes_
+
+Packs multiple aie.trace.reg operations that write to the same register
+into a single aie.trace.reg operation with a combined mask and value.
+
+This pass operates in two phases:
+1. Convert field+value pairs to mask+shifted_value using register database
+2. Merge multiple writes to the same register with non-overlapping masks
+
+Example transformation:
+```mlir
+// Before:
+aie.trace.reg register="Trace_Event0" field="Trace_Event0" value=33
+aie.trace.reg register="Trace_Event0" field="Trace_Event1" value=34
+
+// After:
+aie.trace.reg register="Trace_Event0" value=0x22210000 mask=0xFFFF0000
+```
+
+It is an error for two aie.trace.reg in the same aie.trace block to have
+overlapping masks for the same register.
+
+### `-aie-trace-to-config`
+
+_Lower high-level trace ops to register configuration ops_
+
+Converts aie.trace operations to aie.trace.config operations containing
+aie.trace.reg operations that specify register field writes.
+
+This pass transforms declarative trace configurations into register-level
+specifications that can be further lowered to NPU register writes.
+
+Note: This pass only does semantic lowering. NPU write generation
+happens in aie-inline-trace-config (AIEX dialect).
 
 ### `-aie-vector-opt`
 
@@ -182,3 +317,47 @@ _Optimize vector instructions for AIE_
 
 After super-vectorization, some additional optimizations are important
 for improving QOR and enabling lowering to LLVM.
+
+### `-aie-vector-to-pointer-loops`
+
+_Transform vector load/store loops to use ptr dialect for explicit pointer arithmetic_
+
+This pass transforms scf.for loops containing vector.load/store operations
+with loop-carried index arguments to use ptr dialect operations.
+
+The transformation makes pointer increment patterns explicit to help the
+LLVM backend generate efficient post-increment addressing modes (GEP fusion).
+
+Example transformation:
+  Before:
+    scf.for iter_args(%idx = %0) {
+      %v = vector.load %memref[%idx]
+      %next = arith.addi %idx, %stride
+      scf.yield %next
+    }
+
+  After:
+    %ptr = ptr.to_ptr %memref
+    %init_ptr = ptr.ptr_add %ptr, %0
+    scf.for iter_args(%p = %init_ptr) {
+      %m = ptr.from_ptr %p
+      %v = vector.load %m[%c0]
+      %next_p = ptr.ptr_add %p, %stride
+      scf.yield %next_p
+    }
+
+### `-aie-vector-transfer-lowering`
+
+_Lower vector.transfer_read/write to vector.load/store for AIE_
+
+This pass lowers vector.transfer_read operations to vector.load + vector.broadcast
+and vector.transfer_write operations to vector.store, when applicable.
+It's a wrapper for the upstream `populateVectorTransferLoweringPatterns`.
+TODO: Deprecate this pass once `populateVectorTransferLoweringPatterns` is included in 
+`convert-to-llvm`.
+
+#### Options
+
+```
+-max-transfer-rank : Maximum vector rank to lower. -1 means no limit.
+```

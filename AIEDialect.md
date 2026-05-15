@@ -118,6 +118,7 @@ Interfaces: `OpAsmOpInterface`, `TileElement`
 <tr><td><code>address</code></td><td>::mlir::IntegerAttr</td><td>32-bit signless integer attribute</td></tr>
 <tr><td><code>initial_value</code></td><td>::mlir::ElementsAttr</td><td>constant vector/tensor attribute</td></tr>
 <tr><td><code>mem_bank</code></td><td>::mlir::IntegerAttr</td><td>32-bit signless integer attribute</td></tr>
+<tr><td><code>aligned</code></td><td>::mlir::BoolAttr</td><td>bool attribute</td></tr>
 </table>
 
 #### Operands:
@@ -144,15 +145,22 @@ Syntax:
 operation ::= `aie.cascade_flow` `(` $source_tile `,` $dest_tile `)` attr-dict
 ```
 
-The `aie.cascade_flow` operation represents a cascade connection between two `aie.tile` operations.
-During lowering, this is replaced by `aie.configure_cascade` operations for each `aie.tile` based on
-their relative placement to one another.
+The `aie.cascade_flow` operation represents a cascade connection between two tile operations
+(`aie.tile` or `aie.logical_tile`). During lowering, this is replaced by `aie.configure_cascade`
+operations for each tile based on their relative placement to one another.
 
 Example:
 ```
   %tile03 = aie.tile(0, 3)
   %tile13 = aie.tile(1, 3)
   aie.cascade_flow(%tile03, %tile13)
+```
+
+With logical tiles (placement pass will assign cascadable position):
+```
+  %core1 = aie.logical_tile<CoreTile>(?, ?)
+  %core2 = aie.logical_tile<CoreTile>(?, ?)
+  aie.cascade_flow(%core1, %core2)
 ```
 
 #### Operands:
@@ -257,6 +265,11 @@ typically be outlined into the LLVM dialect, eventually resulting in a binary fi
 for each core.  The name of this file can be be specified using the `elf_file`
 attribute.
 
+If the `elf_file` attribute is present, no MLIR besides a terminator may be
+present in the core; in that case, the binary file linked dictates what 
+will run in the core. The path specified should is relative to the MLIR
+file.
+
 This op has an optional `stackSize` attribute, to control the amount of memory (in bytes)
 reserved for the stack.  The default value is 1024.  The stack (and other data allocations)
 are always stored in the local core memory, to avoid conflicts with static data allocations
@@ -264,6 +277,18 @@ in other cores.
 
 This op has an optional `dynamic_objfifo_lowering` attribute, to finely control whether the
 objectfifos in this core should be lowered using the dynamic runtime lowering.
+
+**External object files.**  The preferred mechanism is to attach a `link_with`
+string attribute to each `func.func` declaration for an externally-defined
+function, then run the `aie-assign-core-link-files` pass.  That pass traces
+direct `func.call` edges from each core and writes the aggregated, de-duplicated
+list of object file paths into the `link_files` attribute on this op.  The
+BCF/ldscript emitters and the aiecc driver consume `link_files`.
+
+The core-level `link_with` attribute is deprecated and kept only for
+backward compatibility.  It is migrated by `aie-assign-core-link-files`
+(its value is folded into `link_files` and then removed).  Specifying both
+`link_with` and `link_files` on the same CoreOp is a verifier error.
 
 Examples:
 ```
@@ -282,7 +307,9 @@ aie.core(%tile) {
 } { stackSize = 2048 : i32, elf_file = "core_33.elf" }
 ```
 
-Interfaces: `FlowEndPoint`, `InferTypeOpInterface`, `OpAsmOpInterface`, `TileElement`
+Traits: `IsFlowEndPoint`
+
+Interfaces: `InferTypeOpInterface`, `OpAsmOpInterface`, `TileElement`
 
 #### Attributes:
 
@@ -290,6 +317,7 @@ Interfaces: `FlowEndPoint`, `InferTypeOpInterface`, `OpAsmOpInterface`, `TileEle
 <tr><th>Attribute</th><th>MLIR Type</th><th>Description</th></tr>
 <tr><td><code>stack_size</code></td><td>::mlir::IntegerAttr</td><td>32-bit signless integer attribute</td></tr>
 <tr><td><code>link_with</code></td><td>::mlir::StringAttr</td><td>string attribute</td></tr>
+<tr><td><code>link_files</code></td><td>::mlir::ArrayAttr</td><td>string array attribute</td></tr>
 <tr><td><code>elf_file</code></td><td>::mlir::StringAttr</td><td>string attribute</td></tr>
 <tr><td><code>dynamic_objfifo_lowering</code></td><td>::mlir::BoolAttr</td><td>bool attribute</td></tr>
 </table>
@@ -335,7 +363,7 @@ _Define an AIE design targetting a complete device_
 Syntax:
 
 ```
-operation ::= `aie.device` `(` $device `)` regions attr-dict
+operation ::= `aie.device` `(` $device `)` ($sym_name^)? regions attr-dict
 ```
 
 This operation describes a design that executes on a particular AIEngine device.
@@ -360,15 +388,16 @@ aie.device(xcvc1902) {
 }
 ```
 
-Traits: `HasParent<mlir::ModuleOp>`, `IsolatedFromAbove`, `SingleBlockImplicitTerminator<EndOp>`, `SingleBlock`, `SymbolTable`
+Traits: `HasDefaultDLTIDataLayout`, `HasParent<mlir::ModuleOp>`, `IsolatedFromAbove`, `SingleBlockImplicitTerminator<EndOp>`, `SingleBlock`, `SymbolTable`
 
-Interfaces: `AIETarget`
+Interfaces: `AIETarget`, `DataLayoutOpInterface`, `Symbol`
 
 #### Attributes:
 
 <table>
 <tr><th>Attribute</th><th>MLIR Type</th><th>Description</th></tr>
 <tr><td><code>device</code></td><td>xilinx::AIE::AIEDeviceAttr</td><td>AIE Device</td></tr>
+<tr><td><code>sym_name</code></td><td>::mlir::StringAttr</td><td>string attribute</td></tr>
 </table>
 
 
@@ -541,7 +570,7 @@ is 0). All counts are expressed in multiples of the element width.
 
 | Operand | Description |
 | :-----: | ----------- |
-| `buffer` | memref of any type values |
+| `buffer` | ranked or unranked memref of any type values |
 
 
 
@@ -777,8 +806,6 @@ An op to read from a cascading stream from a neighboring core.
 The result type of this operation must have a size that matches the cascade size,
 which is architecture-dependent. e.g. AIE1: i384 or vector<8xi48>  AIE2: i512 or vector<16xi32>
 
-Traits: `HasParent<CoreOp>`
-
 #### Results:
 
 | Result | Description |
@@ -839,11 +866,7 @@ Case when LockID is not assigned:
   Before AIEAssignLockIDs: `%tile33 = aie.tile(3)`
   After AIEAssignLockIDs: `%tile33 = aie.tile(3, $assigned_value)`
 
-Traits: `AlwaysSpeculatableImplTrait`
-
-Interfaces: `ConditionallySpeculatable`, `InferTypeOpInterface`, `NoMemoryEffect (MemoryEffectOpInterface)`, `OpAsmOpInterface`, `TileElement`
-
-Effects: `MemoryEffects::Effect{}`
+Interfaces: `InferTypeOpInterface`, `OpAsmOpInterface`, `TileElement`
 
 #### Attributes:
 
@@ -865,6 +888,60 @@ Effects: `MemoryEffects::Effect{}`
 | Result | Description |
 | :----: | ----------- |
 | &laquo;unnamed&raquo; | index |
+
+
+
+### `aie.logical_tile` (::xilinx::AIE::LogicalTileOp)
+
+_Declare a logical AIE tile to be placed_
+
+This operation creates a logical AIE tile that represents a tile to be 
+mapped to a `aie.tile` during placement. Unlike `aie.tile`, 
+this operation does not require absolute coordinates and instead uses
+a tile type to specify the kind of tile needed.
+
+The tile types are:
+- `CoreTile`: Maps to core tiles (tiles with a core, TileDMA, memory, 
+  and stream connections)
+- `ShimNOCTile`: Maps to shim NOC tiles
+- `ShimPLTile`: Maps to shim PL tiles
+- `MemTile`: Maps to memory tiles (AIE2+ tiles with TileDMA and memory, 
+  but no core)
+
+Optional `col` and `row` can be provided as placement hints or constraints.
+Use `?` for unspecified coordinates.
+
+Examples:
+```
+// Logical core tile without placement constraints
+%core_tile = aie.logical_tile<CoreTile>(?, ?)
+
+// Logical shim tile with column hint but unspecified row
+%shim_tile = aie.logical_tile<ShimNOCTile>(0, ?)
+
+// Logical tile with full placement constraint (effectively fixed)
+%fixed = aie.logical_tile<CoreTile>(2, 3)
+```
+
+Traits: `SkipAccessibilityCheckTrait`
+
+Interfaces: `InferTypeOpInterface`, `OpAsmOpInterface`, `TileLike`
+
+#### Attributes:
+
+<table>
+<tr><th>Attribute</th><th>MLIR Type</th><th>Description</th></tr>
+<tr><td><code>tile_type</code></td><td>xilinx::AIE::AIETileTypeAttr</td><td>Type of AIE Tile</td></tr>
+<tr><td><code>col</code></td><td>::mlir::IntegerAttr</td><td>32-bit signless integer attribute whose minimum value is 0</td></tr>
+<tr><td><code>row</code></td><td>::mlir::IntegerAttr</td><td>32-bit signless integer attribute whose minimum value is 0</td></tr>
+<tr><td><code>allocation_scheme</code></td><td>::mlir::StringAttr</td><td>string attribute</td></tr>
+</table>
+
+#### Results:
+
+| Result | Description |
+| :----: | ----------- |
+| `result` | index |
 
 
 
@@ -959,9 +1036,9 @@ Example:
 ```
 Create the memory module for tile %t73 and setup one DMA channel and one Buffer Descriptor.
 
-Traits: `HasValidBDs`, `HasValidDMAChannels`
+Traits: `HasValidBDs`, `HasValidDMAChannels`, `IsFlowEndPoint`
 
-Interfaces: `FlowEndPoint`, `InferTypeOpInterface`, `OpAsmOpInterface`, `TileElement`
+Interfaces: `InferTypeOpInterface`, `OpAsmOpInterface`, `TileElement`
 
 #### Operands:
 
@@ -1010,9 +1087,9 @@ Example:
 ```
 Create a description for tile `%t73` and setup one DMA channel and one Buffer Descriptor.
 
-Traits: `HasValidBDs`, `HasValidDMAChannels`
+Traits: `HasValidBDs`, `HasValidDMAChannels`, `IsFlowEndPoint`
 
-Interfaces: `FlowEndPoint`, `InferTypeOpInterface`, `OpAsmOpInterface`, `TileElement`
+Interfaces: `InferTypeOpInterface`, `OpAsmOpInterface`, `TileElement`
 
 #### Operands:
 
@@ -1160,6 +1237,16 @@ all even indices from the stream, followed by all odd indices:
                       ) : !aie.objectfifo<memref<256xi32>>
 ```
 
+The behavior of the objectFifo is further controlled by optional parameters.
+The `repeat_count` parameter specifies the number of times each individual 
+object is repeated during transfer. When `repeat_count == 1`, each object 
+is transferred once.
+
+The `iter_count` parameter specifies the number of iterations of 
+the buffer descriptor chain generated at the lower level. The total number 
+of objects transferred is calculated as `iter_count * elemNumber * repeat_count`.
+When `repeat_count == 1`, this simplifies to `iter_count * elemNumber`.
+
 Traits: `HasParent<DeviceOp>`
 
 Interfaces: `Symbol`
@@ -1176,10 +1263,12 @@ Interfaces: `Symbol`
 <tr><td><code>via_DMA</code></td><td>::mlir::BoolAttr</td><td>bool attribute</td></tr>
 <tr><td><code>plio</code></td><td>::mlir::BoolAttr</td><td>bool attribute</td></tr>
 <tr><td><code>disable_synchronization</code></td><td>::mlir::BoolAttr</td><td>bool attribute</td></tr>
-<tr><td><code>via_shared_mem</code></td><td>::mlir::IntegerAttr</td><td>32-bit signless integer attribute</td></tr>
 <tr><td><code>repeat_count</code></td><td>::mlir::IntegerAttr</td><td>32-bit signless integer attribute whose minimum value is 1</td></tr>
+<tr><td><code>aie_stream</code></td><td>::mlir::IntegerAttr</td><td>32-bit signless integer attribute whose minimum value is 0 whose maximum value is 2</td></tr>
+<tr><td><code>aie_stream_port</code></td><td>::mlir::IntegerAttr</td><td>32-bit signless integer attribute whose minimum value is 0 whose maximum value is 1</td></tr>
 <tr><td><code>initValues</code></td><td>::mlir::ArrayAttr</td><td>array of ElementsAttr</td></tr>
 <tr><td><code>padDimensions</code></td><td>::xilinx::AIE::BDPadLayoutArrayAttr</td><td></td></tr>
+<tr><td><code>iter_count</code></td><td>::mlir::IntegerAttr</td><td>32-bit signless integer attribute</td></tr>
 </table>
 
 #### Operands:
@@ -1237,6 +1326,43 @@ port and returns a subview of the acquired objects.
 
 
 
+### `aie.objectfifo.allocate` (::xilinx::AIE::ObjectFifoAllocateOp)
+
+_Sets a tile's memory module as the target for an objectfifo's memory allocation_
+
+Syntax:
+
+```
+operation ::= `aie.objectfifo.allocate` $objFifo_name `(` $delegateTile `)` attr-dict
+```
+
+Specify a tile's memory module to be used as the allocation target for this objectfifo.
+Only works if all the objectfifo's tiles, producer and consumers, have shared memory access to
+the specified tile's memory module.
+
+In the following example the objects of @of4 will be allocated on %tile14:
+```
+  aie.objectfifo @of4 (%tile13, { %tile14 }, 2 : i32) : !aie.objectfifo<memref<256xi32>>
+  aie.objectfifo.allocate @of4 (%tile14)
+```
+
+Traits: `HasParent<DeviceOp>`
+
+#### Attributes:
+
+<table>
+<tr><th>Attribute</th><th>MLIR Type</th><th>Description</th></tr>
+<tr><td><code>objFifo_name</code></td><td>::mlir::FlatSymbolRefAttr</td><td>flat symbol reference attribute</td></tr>
+</table>
+
+#### Operands:
+
+| Operand | Description |
+| :-----: | ----------- |
+| `delegateTile` | index |
+
+
+
 ### `aie.objectfifo.link` (::xilinx::AIE::ObjectFifoLinkOp)
 
 _Links two objectFifos through an intermediary tile's DMA_
@@ -1247,7 +1373,7 @@ Syntax:
 operation ::= `aie.objectfifo.link` $fifoIns `->` $fifoOuts `(` $src_offsets $dst_offsets `)` attr-dict
 ```
 
-The `aie.objectFifo.link` operation marks two or more `objectFifos` as linked. This implies that the `objectFifos` form
+The `aie.objectfifo.link` operation marks two or more `objectFifos` as linked. This implies that the `objectFifos` form
 one dataflow movement which is split accross multiple `objectFifos`. Specifically, during the `objectFifo` lowering there will
 be less memory elements generated at the link point (i.e., the shared tile of all `objectFifos` in the link) as the `objectFifos` can share.
 
@@ -1266,6 +1392,10 @@ To achieve a broadcast pattern through the link tile, the output `objectFifo` sh
 To achieve a distribute pattern from the link tile, there should be multiple output `objectFifos` in the OjbectFifoLinkOp. In this case,
 parts will be taken out of the input `objectFifo`'s buffers based on dst_offsets input array.
 The join pattern is the exact inverse of the distribute one and uses the src_offsets input array instead.
+
+In the cases of the join and distribute patterns, the link has some special restrictions on `toStream` and `fromStream` dimensions:
+- join: the `toStream` dimensions of the output `objectFifo` cannot access an index beyond the length of the minimum transfer length in the src_offsets.
+- distribute: the `fromStream` dimensions of the input `objectFifo` cannot access an index beyond the length of the minimum transfer length in dst_offsets.
 
 Traits: `HasParent<DeviceOp>`
 
@@ -1640,8 +1770,6 @@ An op to write to a cascading stream from a neighboring core.
 The argument type of this operation must have a size that matches the cascade size,
 which is architecture-dependent. e.g. AIE1: i384 or vector<8xi48>  AIE2: i512 or vector<16xi32>
 
-Traits: `HasParent<CoreOp>`
-
 #### Operands:
 
 | Operand | Description |
@@ -1730,6 +1858,29 @@ Traits: `HasParent<PacketRulesOp>`
 
 
 
+### `aie.runtime_sequence` (::xilinx::AIE::RuntimeSequenceOp)
+
+_Program the configuration co-processor of the AI Engine array_
+
+Instructions in this operation allow for runtime (re-)configuration of the AI Engine array, such as configuring data movement buffer descriptors.
+These instructions will execute on the configuration co-processor of the AI Engine array.
+
+Typically, these instructions include configuring the data transfers between host and AIE array on the shims.
+The input arguments are arguments passed in from the host at kernel invocation time. This may include buffers on the host.
+
+Traits: `HasParent<DeviceOp>`, `NoTerminator`
+
+Interfaces: `Symbol`
+
+#### Attributes:
+
+<table>
+<tr><th>Attribute</th><th>MLIR Type</th><th>Description</th></tr>
+<tr><td><code>sym_name</code></td><td>::mlir::StringAttr</td><td>string attribute</td></tr>
+</table>
+
+
+
 ### `aie.shim_dma` (::xilinx::AIE::ShimDMAOp)
 
 _Declare a DMA in the PL shim_
@@ -1761,9 +1912,9 @@ Example:
 ```
 Create the shim_dma for tile `%t70` and setup one DMA channel and one Buffer Descriptor.
 
-Traits: `HasValidBDs`, `HasValidDMAChannels`
+Traits: `HasValidBDs`, `HasValidDMAChannels`, `IsFlowEndPoint`
 
-Interfaces: `FlowEndPoint`, `InferTypeOpInterface`, `OpAsmOpInterface`, `TileElement`
+Interfaces: `InferTypeOpInterface`, `OpAsmOpInterface`, `TileElement`
 
 #### Operands:
 
@@ -1786,16 +1937,15 @@ _Runtime allocation information for a single shim DMA_
 Syntax:
 
 ```
-operation ::= `aie.shim_dma_allocation` $sym_name `(` $channel_dir `,` $channel_index `,` $col `)` attr-dict
+operation ::= `aie.shim_dma_allocation` $sym_name `(` $tile `,` $channel_dir `,` $channel_index (`,` $packet^)? `)` attr-dict
 ```
 
 This op exists for cases where shim_dma configuration is performed outside of MLIR-AIE
 and hence there is no appropriate dma_start operation to indicate which channel is being
-used and on which column the shim_dma is.
+used and on which shim tile the shim_dma is.
 
 It contains attributes for the sym_name of an operation which generated the shim DMA,
-for the DMAChannelDir and channel index, and for the column of the shim tile to which
-the originating operation was mapped.
+for the DMAChannelDir and channel index, and a reference to the shim tile.
 
 Example:
 ```
@@ -1803,23 +1953,33 @@ Example:
   %tile02 = aie.tile(0, 2)
   aie.objectfifo @of_in_0 (%tile00, { %tile02 }, 2) : !aie.objectfifo<memref<64xi16>>
 ```
-could produce the following allocation info (channel direction MM2S, channel index 1, and shim column 0):
+could produce the following allocation info (channel direction MM2S, channel index 1, on tile %tile00):
 ```
-  aie.shim_dma_allocation @of_in_0 (MM2S, 1, 0)
+  aie.shim_dma_allocation @of_in_0 (%tile00, MM2S, 1)
 ```
 
 Traits: `HasParent<DeviceOp>`
+
+Interfaces: `Symbol`
 
 #### Attributes:
 
 <table>
 <tr><th>Attribute</th><th>MLIR Type</th><th>Description</th></tr>
-<tr><td><code>sym_name</code></td><td>::mlir::FlatSymbolRefAttr</td><td>flat symbol reference attribute</td></tr>
+<tr><td><code>sym_name</code></td><td>::mlir::StringAttr</td><td>string attribute</td></tr>
 <tr><td><code>channel_dir</code></td><td>xilinx::AIE::DMAChannelDirAttr</td><td>DMA Channel direction</td></tr>
 <tr><td><code>channel_index</code></td><td>::mlir::IntegerAttr</td><td>64-bit signless integer attribute</td></tr>
-<tr><td><code>col</code></td><td>::mlir::IntegerAttr</td><td>64-bit signless integer attribute</td></tr>
 <tr><td><code>plio</code></td><td>::mlir::BoolAttr</td><td>bool attribute</td></tr>
+<tr><td><code>packet</code></td><td>::xilinx::AIE::PacketInfoAttr</td><td>
+    Tuple encoding the type and header of a packet;
+  </td></tr>
 </table>
+
+#### Operands:
+
+| Operand | Description |
+| :-----: | ----------- |
+| `tile` | index |
 
 
 
@@ -1964,9 +2124,9 @@ A tile is a logical abstraction. We use a tile to establish ownership of a hardw
 Note that row 0 of the Tile array is different from other rows, since it models the shim interface between
 the AIE array proper and the PL. The South-West/Lower Right most core exists in Tile(0,1).
 
-Traits: `AlwaysSpeculatableImplTrait`
+Traits: `AlwaysSpeculatableImplTrait`, `IsFlowEndPoint`
 
-Interfaces: `ConditionallySpeculatable`, `FlowEndPoint`, `InferTypeOpInterface`, `NoMemoryEffect (MemoryEffectOpInterface)`, `OpAsmOpInterface`
+Interfaces: `ConditionallySpeculatable`, `InferTypeOpInterface`, `NoMemoryEffect (MemoryEffectOpInterface)`, `OpAsmOpInterface`, `TileLike`
 
 Effects: `MemoryEffects::Effect{}`
 
@@ -1984,6 +2144,608 @@ Effects: `MemoryEffects::Effect{}`
 | Result | Description |
 | :----: | ----------- |
 | `result` | index |
+
+
+
+### `aie.trace` (::xilinx::AIE::TraceOp)
+
+_Declare a named trace configuration for a tile_
+
+Syntax:
+
+```
+operation ::= `aie.trace` $sym_name `(` $tile `)` $body attr-dict
+```
+
+Declares a named trace configuration that can be invoked from a runtime
+sequence. The trace operation is a symbol that defines what events to
+monitor and how to configure the trace hardware, but does not actually
+apply the configuration. Configuration is applied via `aie.trace.start_config`
+within a `aie.runtime_sequence` block.
+
+Example:
+```mlir
+%tile02 = aie.tile(0, 2)
+
+aie.trace @trace_tile02(%tile02) {
+  aie.trace.mode "Event-Time"
+  aie.trace.packet id=1 type=core
+  aie.trace.event<"INSTR_EVENT_0">
+  aie.trace.event<"INSTR_VECTOR">
+  aie.trace.start broadcast=15
+  aie.trace.stop broadcast=14
+}
+```
+
+Traits: `HasParent<DeviceOp>`, `SingleBlockImplicitTerminator<EndOp>`, `SingleBlock`
+
+Interfaces: `OpAsmOpInterface`, `Symbol`
+
+#### Attributes:
+
+<table>
+<tr><th>Attribute</th><th>MLIR Type</th><th>Description</th></tr>
+<tr><td><code>sym_name</code></td><td>::mlir::StringAttr</td><td>string attribute</td></tr>
+</table>
+
+#### Operands:
+
+| Operand | Description |
+| :-----: | ----------- |
+| `tile` | index |
+
+
+
+### `aie.trace.combo_event` (::xilinx::AIE::TraceComboEventOp)
+
+_Configure a combo event for logical event combinations_
+
+Syntax:
+
+```
+operation ::= `aie.trace.combo_event` `<` $slot `>` $eventA $logic $eventB attr-dict
+```
+
+Configures a combo event that creates a derived event from logical
+combinations of other events. Combo events are evaluated by hardware
+Event Logic and produce new events (COMBO_EVENT_0/1/2/3) that can be
+traced using aie.trace.event operations.
+
+The combo event is configured with two input events and a logic function
+(AND, AND_NOT, OR, OR_NOT). AIE2 supports hierarchical combinations
+through slot 2 (combo of combo0 and combo1 results).
+
+Events can be specified as strings or typed enums.
+
+Slots:
+- Slot 0 (combo0): uses eventA, eventB
+- Slot 1 (combo1): uses eventC, eventD
+- Slot 2 (combo2): hierarchical, uses COMBO_EVENT_0 and COMBO_EVENT_1
+- Slot 3 (combo3): architecture-specific state machine (no configuration)
+
+Example:
+```mlir
+aie.trace @my_trace(%tile02) {
+  // Configure Combo 0: lock stalled AND NOT DMA active
+  aie.trace.combo_event<0> <"LOCK_STALL"> AND_NOT <"DMA_S2MM_0_STALLED">
+
+  // Configure Combo 1: instruction event OR vector operation
+  aie.trace.combo_event<1> <CoreEventAIE2::INSTR_EVENT_0> OR <CoreEventAIE2::INSTR_VECTOR>
+
+  // Configure Combo 2: (combo0) AND (combo1)
+  aie.trace.combo_event<2> <"COMBO_EVENT_0"> AND <"COMBO_EVENT_1">
+
+  // Trace the combo results
+  aie.trace.event<"COMBO_EVENT_0">
+  aie.trace.event<"COMBO_EVENT_1">
+  aie.trace.event<"COMBO_EVENT_2">
+  ...
+}
+```
+
+Traits: `HasParent<TraceOp>`
+
+#### Attributes:
+
+<table>
+<tr><th>Attribute</th><th>MLIR Type</th><th>Description</th></tr>
+<tr><td><code>slot</code></td><td>::mlir::IntegerAttr</td><td>32-bit signless integer attribute</td></tr>
+<tr><td><code>eventA</code></td><td>::xilinx::AIE::TraceEventAttr</td><td><details><summary>Reference to a trace event by name or enum</summary>{{% markdown %}}
+    References an event by name string or typed enum. Strings are used for
+    generic references that are resolved during lowering. Enums provide
+    compile-time type checking.
+
+    Validated against:
+    - Tile type (core events only valid for core tiles, etc.)
+    - Architecture (AIE/AIE2/AIE2P/AIE4)
+
+    Examples:
+      "INSTR_EVENT_0"                // String (resolved during lowering)
+      CoreEventAIE2::INSTR_EVENT_0   // Enum
+  {{% /markdown %}}</details></td></tr>
+<tr><td><code>logic</code></td><td>::xilinx::AIE::ComboLogicAttr</td><td><details><summary>Combo event logic function</summary>{{% markdown %}}
+    Logical operation for combining two events:
+    - AND (00): eventA AND eventB
+    - AND_NOT (01): eventA AND NOT eventB
+    - OR (10): eventA OR eventB
+    - OR_NOT (11): eventA OR NOT eventB
+  {{% /markdown %}}</details></td></tr>
+<tr><td><code>eventB</code></td><td>::xilinx::AIE::TraceEventAttr</td><td><details><summary>Reference to a trace event by name or enum</summary>{{% markdown %}}
+    References an event by name string or typed enum. Strings are used for
+    generic references that are resolved during lowering. Enums provide
+    compile-time type checking.
+
+    Validated against:
+    - Tile type (core events only valid for core tiles, etc.)
+    - Architecture (AIE/AIE2/AIE2P/AIE4)
+
+    Examples:
+      "INSTR_EVENT_0"                // String (resolved during lowering)
+      CoreEventAIE2::INSTR_EVENT_0   // Enum
+  {{% /markdown %}}</details></td></tr>
+</table>
+
+
+
+### `aie.trace.config` (::xilinx::AIE::TraceConfigOp)
+
+_Intermediate representation of lowered trace configuration_
+
+Syntax:
+
+```
+operation ::= `aie.trace.config` $sym_name `(` $tile `)` (`packet_type` `=` $packet_type^)? $body attr-dict
+```
+
+Generated by AIETraceToConfigPass. Contains calculated register
+addresses and values needed to configure trace hardware.
+
+This is an intermediate representation that makes it easier to perform
+optimizations before final lowering to NPU register writes.
+
+Example (generated, not user-written):
+```mlir
+aie.trace.config @trace_tile02_config(%tile02) {
+  aie.trace.reg register="Trace_Control0" field="Trace_Start_Event" value=15
+  aie.trace.reg register="Trace_Control0" field="Mode" value="Event-Time"
+}
+```
+
+Traits: `HasParent<DeviceOp>`, `SingleBlockImplicitTerminator<EndOp>`, `SingleBlock`
+
+Interfaces: `Symbol`
+
+#### Attributes:
+
+<table>
+<tr><th>Attribute</th><th>MLIR Type</th><th>Description</th></tr>
+<tr><td><code>sym_name</code></td><td>::mlir::StringAttr</td><td>string attribute</td></tr>
+<tr><td><code>packet_type</code></td><td>::xilinx::AIE::TracePacketTypeAttr</td><td><details><summary>Packet type identifier for parsing</summary>{{% markdown %}}
+    Packet Type Convention:
+    - 0: Core tile (CORE_MODULE)
+    - 1: Core tile (MEMORY_MODULE)
+    - 2: Shim tile
+    - 3: Mem tile
+  {{% /markdown %}}</details></td></tr>
+</table>
+
+#### Operands:
+
+| Operand | Description |
+| :-----: | ----------- |
+| `tile` | index |
+
+
+
+### `aie.trace.edge_event` (::xilinx::AIE::TraceEdgeEventOp)
+
+_Configure an edge detection event_
+
+Configures an edge detection event that triggers on signal transitions
+(rising edge, falling edge, or both) rather than signal levels.
+
+Edge detection is useful for counting event occurrences rather than
+measuring duration. For example, counting the number of lock stalls
+vs. the total cycles spent stalled.
+
+Events can be specified as strings or typed enums.
+
+Each module has 2 edge detectors producing EDGE_DETECTION_EVENT_0/1
+that can be traced using aie.trace.event operations.
+
+Example:
+```mlir
+aie.trace @my_trace(%tile02) {
+  // Configure Edge detector 0: count lock stalls (rising edges)
+  aie.trace.edge_event<0> event=<"LOCK_STALL"> trigger=RISING
+
+  // Configure Edge detector 1: count DMA transitions (both edges)
+  aie.trace.edge_event<1> event=<MemEventAIE2::DMA_MM2S_0_FINISHED_BD> trigger=BOTH
+
+  // Trace the edge-detected events
+  aie.trace.event<"EDGE_DETECTION_EVENT_0">
+  aie.trace.event<"EDGE_DETECTION_EVENT_1">
+  ...
+}
+```
+
+Traits: `HasParent<TraceOp>`
+
+#### Attributes:
+
+<table>
+<tr><th>Attribute</th><th>MLIR Type</th><th>Description</th></tr>
+<tr><td><code>slot</code></td><td>::mlir::IntegerAttr</td><td>32-bit signless integer attribute</td></tr>
+<tr><td><code>event</code></td><td>::xilinx::AIE::TraceEventAttr</td><td><details><summary>Reference to a trace event by name or enum</summary>{{% markdown %}}
+    References an event by name string or typed enum. Strings are used for
+    generic references that are resolved during lowering. Enums provide
+    compile-time type checking.
+
+    Validated against:
+    - Tile type (core events only valid for core tiles, etc.)
+    - Architecture (AIE/AIE2/AIE2P/AIE4)
+
+    Examples:
+      "INSTR_EVENT_0"                // String (resolved during lowering)
+      CoreEventAIE2::INSTR_EVENT_0   // Enum
+  {{% /markdown %}}</details></td></tr>
+<tr><td><code>trigger</code></td><td>::xilinx::AIE::EdgeTriggerAttr</td><td><details><summary>Edge detection trigger mode</summary>{{% markdown %}}
+    Edge detection trigger mode:
+    - RISING (01): Trigger on rising edge (0→1 transition)
+    - FALLING (10): Trigger on falling edge (1→0 transition)
+    - BOTH (11): Trigger on both edges
+  {{% /markdown %}}</details></td></tr>
+</table>
+
+
+
+### `aie.trace.event` (::xilinx::AIE::TraceEventOp)
+
+_Monitor a specific event in this trace unit_
+
+Syntax:
+
+```
+operation ::= `aie.trace.event` $event (`label` `=` $label^)? attr-dict
+```
+
+Adds an event to be monitored by the trace unit. Each tile type
+(core/mem/memtile/shimtile) has architecture-specific events.
+
+Events can be specified as strings or enum values.
+
+Maximum 8 events per trace unit (verified at compile time).
+
+Example:
+```mlir
+aie.trace.event<"INSTR_EVENT_0">  // String
+aie.trace.event<CoreEventAIE::COMBO_EVENT_0>    // Enum value
+```
+
+Traits: `HasParent<TraceOp>`
+
+#### Attributes:
+
+<table>
+<tr><th>Attribute</th><th>MLIR Type</th><th>Description</th></tr>
+<tr><td><code>event</code></td><td>::xilinx::AIE::TraceEventAttr</td><td><details><summary>Reference to a trace event by name or enum</summary>{{% markdown %}}
+    References an event by name string or typed enum. Strings are used for
+    generic references that are resolved during lowering. Enums provide
+    compile-time type checking.
+
+    Validated against:
+    - Tile type (core events only valid for core tiles, etc.)
+    - Architecture (AIE/AIE2/AIE2P/AIE4)
+
+    Examples:
+      "INSTR_EVENT_0"                // String (resolved during lowering)
+      CoreEventAIE2::INSTR_EVENT_0   // Enum
+  {{% /markdown %}}</details></td></tr>
+<tr><td><code>label</code></td><td>::mlir::StringAttr</td><td>string attribute</td></tr>
+</table>
+
+
+
+### `aie.trace.host_config` (::xilinx::AIE::TraceHostConfigOp)
+
+_Configure host buffer for trace data collection_
+
+Configures host-side trace buffer.
+
+Attributes:
+- buffer_size: Trace buffer size in bytes
+- arg_idx (default=4): XRT argument index for trace buffer. Set to -1 to
+  append trace data after the last tensor argument in the runtime_sequence.
+- routing (default=single): Shim routing strategy. Currently only 'single'
+  is supported, which routes all traces to column 0's shim.
+
+Example:
+```mlir
+aie.runtime_sequence(%arg0: memref<16xi32>) {
+  aie.trace.host_config buffer_size=65536
+  aie.trace.start_config @trace1
+}
+```
+
+Traits: `HasParent<RuntimeSequenceOp>`
+
+#### Attributes:
+
+<table>
+<tr><th>Attribute</th><th>MLIR Type</th><th>Description</th></tr>
+<tr><td><code>buffer_size</code></td><td>::mlir::IntegerAttr</td><td>32-bit signless integer attribute</td></tr>
+<tr><td><code>arg_idx</code></td><td>::mlir::IntegerAttr</td><td>32-bit signless integer attribute</td></tr>
+<tr><td><code>routing</code></td><td>::xilinx::AIE::TraceShimRoutingAttr</td><td><details><summary>Shim tile routing strategy for trace collection</summary>{{% markdown %}}
+    Determines how traces are routed to shim tiles:
+    - single: All traces route to a single shim tile (column 0)
+  {{% /markdown %}}</details></td></tr>
+</table>
+
+
+
+### `aie.trace.mode` (::xilinx::AIE::TraceModeOp)
+
+_Set trace mode (Event-Time, Event-PC, or Execution)_
+
+Syntax:
+
+```
+operation ::= `aie.trace.mode` $mode attr-dict
+```
+
+Specifies the trace mode. Default: "Event-Time"
+
+Example:
+```mlir
+aie.trace.mode "Event-Time"
+```
+
+Traits: `HasParent<TraceOp>`
+
+#### Attributes:
+
+<table>
+<tr><th>Attribute</th><th>MLIR Type</th><th>Description</th></tr>
+<tr><td><code>mode</code></td><td>::xilinx::AIE::TraceModeAttr</td><td><details><summary>Trace capture mode</summary>{{% markdown %}}
+    Specifies the trace mode:
+    - Event-Time (00): Captures event occurrence with timestamp
+    - Event-PC (01): Captures program counter when event occurs
+    - Execution (10): Instruction-level execution trace
+  {{% /markdown %}}</details></td></tr>
+</table>
+
+
+
+### `aie.trace.packet` (::xilinx::AIE::TracePacketOp)
+
+_Enable packet-switched trace routing_
+
+Syntax:
+
+```
+operation ::= `aie.trace.packet` `id` `=` $id `type` `=` $type attr-dict
+```
+
+Enables packet routing for trace data. Assigns packet ID (1-31) and
+packet type to differentiate tile sources during parsing.
+
+Example:
+```mlir
+aie.trace.packet id=1 type=core
+```
+
+Traits: `HasParent<TraceOp>`
+
+#### Attributes:
+
+<table>
+<tr><th>Attribute</th><th>MLIR Type</th><th>Description</th></tr>
+<tr><td><code>id</code></td><td>::mlir::IntegerAttr</td><td>32-bit signless integer attribute whose minimum value is 1 whose maximum value is 31</td></tr>
+<tr><td><code>type</code></td><td>::xilinx::AIE::TracePacketTypeAttr</td><td><details><summary>Packet type identifier for parsing</summary>{{% markdown %}}
+    Packet Type Convention:
+    - 0: Core tile (CORE_MODULE)
+    - 1: Core tile (MEMORY_MODULE)
+    - 2: Shim tile
+    - 3: Mem tile
+  {{% /markdown %}}</details></td></tr>
+</table>
+
+
+
+### `aie.trace.port` (::xilinx::AIE::TracePortOp)
+
+_Configure stream switch port for event monitoring_
+
+Syntax:
+
+```
+operation ::= `aie.trace.port` `<` $slot `>` `port` `=` $port `channel` `=` $channel `direction` `=` $direction
+              attr-dict
+```
+
+Configures a stream switch port monitoring slot (0-7) to track events
+from a specific port. The port is specified by type (NORTH, DMA, etc.),
+channel number, and direction (S2MM=master, MM2S=slave).
+
+Direction semantics:
+- S2MM (Stream-to-Memory-Mapped) = master port (receiving from stream)
+- MM2S (Memory-Mapped-to-Stream) = slave port (sending to stream)
+
+After configuration, the port can be monitored using:
+- PORT_RUNNING_<slot>
+- PORT_IDLE_<slot>
+- PORT_STALLED_<slot>
+- PORT_TLAST_<slot>
+
+Example:
+```mlir
+aie.trace.port<0> port = North channel = 1 direction = S2MM
+aie.trace.port<1> port = DMA channel = 0 direction = MM2S
+aie.trace.event<"PORT_RUNNING_0">  // Monitor NORTH:1 (S2MM)
+aie.trace.event<"PORT_IDLE_1">     // Monitor DMA:0 (MM2S)
+```
+
+Traits: `HasParent<TraceOp>`
+
+#### Attributes:
+
+<table>
+<tr><th>Attribute</th><th>MLIR Type</th><th>Description</th></tr>
+<tr><td><code>slot</code></td><td>::mlir::IntegerAttr</td><td>32-bit signless integer attribute whose minimum value is 0 whose maximum value is 7</td></tr>
+<tr><td><code>port</code></td><td>xilinx::AIE::WireBundleAttr</td><td>Bundle of wires</td></tr>
+<tr><td><code>channel</code></td><td>::mlir::IntegerAttr</td><td>32-bit signless integer attribute</td></tr>
+<tr><td><code>direction</code></td><td>xilinx::AIE::DMAChannelDirAttr</td><td>DMA Channel direction</td></tr>
+</table>
+
+
+
+### `aie.trace.reg` (::xilinx::AIE::TraceRegOp)
+
+_Specify a trace register field write by logical name_
+
+Syntax:
+
+```
+operation ::= `aie.trace.reg` `register` `=` $reg_name
+              (`field` `=` $field^)?
+              `value` `=` custom<TraceRegValue>($value)
+              (`mask` `=` $mask^)?
+              (`comment` `=` $comment^)?
+              attr-dict
+```
+
+Specifies a single register field write needed to configure trace hardware.
+Uses logical register names (e.g., "Trace_Control0"), field names
+(e.g., "Trace_Start_Event"), and values (integers or event names). If field
+is omitted, entire register is written.
+
+The mask field (optional) allows partial writes. When present, only the bits
+set in the mask are written, and the value is assumed to already be shifted.
+This enables combining multiple field writes into a single register write.
+
+Example:
+```mlir
+aie.trace.reg register="Trace_Control0" field="Trace_Start_Event" value=15
+aie.trace.reg register="Trace_Control0" field="Mode" value=0
+aie.trace.reg register="Trace_Control0" value=0x12345678 mask=0xFF00
+```
+
+Traits: `HasParent<TraceConfigOp>`
+
+#### Attributes:
+
+<table>
+<tr><th>Attribute</th><th>MLIR Type</th><th>Description</th></tr>
+<tr><td><code>reg_name</code></td><td>::mlir::StringAttr</td><td>string attribute</td></tr>
+<tr><td><code>field</code></td><td>::mlir::StringAttr</td><td>string attribute</td></tr>
+<tr><td><code>value</code></td><td>::mlir::Attribute</td><td>any attribute</td></tr>
+<tr><td><code>mask</code></td><td>::mlir::IntegerAttr</td><td>32-bit signless integer attribute</td></tr>
+<tr><td><code>comment</code></td><td>::mlir::StringAttr</td><td>string attribute</td></tr>
+</table>
+
+
+
+### `aie.trace.start` (::xilinx::AIE::TraceStartEventOp)
+
+_Configure trace start event_
+
+Specifies the event that triggers trace capture to begin.
+For multi-tile tracing, typically uses a broadcast event (default: 15).
+
+Example:
+```mlir
+aie.trace.start broadcast=15
+aie.trace.start event=<"TRUE">
+```
+
+Traits: `HasParent<TraceOp>`
+
+#### Attributes:
+
+<table>
+<tr><th>Attribute</th><th>MLIR Type</th><th>Description</th></tr>
+<tr><td><code>broadcast</code></td><td>::mlir::IntegerAttr</td><td>32-bit signless integer attribute</td></tr>
+<tr><td><code>event</code></td><td>::xilinx::AIE::TraceEventAttr</td><td><details><summary>Reference to a trace event by name or enum</summary>{{% markdown %}}
+    References an event by name string or typed enum. Strings are used for
+    generic references that are resolved during lowering. Enums provide
+    compile-time type checking.
+
+    Validated against:
+    - Tile type (core events only valid for core tiles, etc.)
+    - Architecture (AIE/AIE2/AIE2P/AIE4)
+
+    Examples:
+      "INSTR_EVENT_0"                // String (resolved during lowering)
+      CoreEventAIE2::INSTR_EVENT_0   // Enum
+  {{% /markdown %}}</details></td></tr>
+</table>
+
+
+
+### `aie.trace.start_config` (::xilinx::AIE::TraceStartConfigOp)
+
+_Apply a trace configuration in runtime sequence_
+
+Syntax:
+
+```
+operation ::= `aie.trace.start_config` $trace_config attr-dict
+```
+
+Invokes a named trace configuration within a runtime sequence.
+During lowering, this operation is replaced by the actual register
+writes (npu_write32) that implement the trace configuration.
+
+Example:
+```mlir
+aie.runtime_sequence @seq {
+  aie.trace.start_config @my_trace
+}
+```
+
+#### Attributes:
+
+<table>
+<tr><th>Attribute</th><th>MLIR Type</th><th>Description</th></tr>
+<tr><td><code>trace_config</code></td><td>::mlir::FlatSymbolRefAttr</td><td>flat symbol reference attribute</td></tr>
+</table>
+
+
+
+### `aie.trace.stop` (::xilinx::AIE::TraceStopEventOp)
+
+_Configure trace stop event_
+
+Specifies the event that triggers trace capture to end.
+For multi-tile tracing, typically uses a broadcast event (default: 14).
+
+Example:
+```mlir
+aie.trace.stop broadcast=14
+aie.trace.stop event=<"USER_EVENT_0">
+```
+
+Traits: `HasParent<TraceOp>`
+
+#### Attributes:
+
+<table>
+<tr><th>Attribute</th><th>MLIR Type</th><th>Description</th></tr>
+<tr><td><code>broadcast</code></td><td>::mlir::IntegerAttr</td><td>32-bit signless integer attribute</td></tr>
+<tr><td><code>event</code></td><td>::xilinx::AIE::TraceEventAttr</td><td><details><summary>Reference to a trace event by name or enum</summary>{{% markdown %}}
+    References an event by name string or typed enum. Strings are used for
+    generic references that are resolved during lowering. Enums provide
+    compile-time type checking.
+
+    Validated against:
+    - Tile type (core events only valid for core tiles, etc.)
+    - Architecture (AIE/AIE2/AIE2P/AIE4)
+
+    Examples:
+      "INSTR_EVENT_0"                // String (resolved during lowering)
+      CoreEventAIE2::INSTR_EVENT_0   // Enum
+  {{% /markdown %}}</details></td></tr>
+</table>
 
 
 
@@ -2170,6 +2932,36 @@ Syntax:
 | pkt_type | `uint16_t` |  |
 | pkt_id | `uint16_t` |  |
 
+### TraceEventAttr
+
+_Reference to a trace event by name or enum_
+
+Syntax:
+
+```
+#aie.trace_event<
+  Attribute   # value
+>
+```
+
+References an event by name string or typed enum. Strings are used for
+generic references that are resolved during lowering. Enums provide
+compile-time type checking.
+
+Validated against:
+- Tile type (core events only valid for core tiles, etc.)
+- Architecture (AIE/AIE2/AIE2P/AIE4)
+
+Examples:
+  "INSTR_EVENT_0"                // String (resolved during lowering)
+  CoreEventAIE2::INSTR_EVENT_0   // Enum
+
+#### Parameters:
+
+| Parameter | C++ type | Description |
+| :-------: | :-------: | ----------- |
+| value | `Attribute` |  |
+
 ## Types
 
 ### AIEObjectFifoSubviewType
@@ -2246,6 +3038,19 @@ _AIE Device_
 | npu2_6col | `14` | npu2_6col |
 | npu2_7col | `15` | npu2_7col |
 
+### AIETileType
+
+_Type of AIE Tile_
+
+#### Cases:
+
+| Symbol | Value | String |
+| :----: | :---: | ------ |
+| CoreTile | `0` | CoreTile |
+| MemTile | `1` | MemTile |
+| ShimNOCTile | `2` | ShimNOCTile |
+| ShimPLTile | `3` | ShimPLTile |
+
 ### CascadeDir
 
 _Directions for cascade_
@@ -2259,6 +3064,423 @@ _Directions for cascade_
 | North | `5` | North |
 | East | `6` | East |
 
+### ComboLogic
+
+_Combo event logic function_
+
+#### Cases:
+
+| Symbol | Value | String |
+| :----: | :---: | ------ |
+| AND | `0` | AND |
+| AND_NOT | `1` | AND_NOT |
+| OR | `2` | OR |
+| OR_NOT | `3` | OR_NOT |
+
+### CoreEventAIE
+
+_Core module event enumeration for AIE_
+
+#### Cases:
+
+| Symbol | Value | String |
+| :----: | :---: | ------ |
+| NONE | `0` | NONE |
+| TRUE | `1` | TRUE |
+| GROUP_0 | `2` | GROUP_0 |
+| TIMER_SYNC | `3` | TIMER_SYNC |
+| TIMER_VALUE_REACHED | `4` | TIMER_VALUE_REACHED |
+| PERF_CNT_0 | `5` | PERF_CNT_0 |
+| PERF_CNT_1 | `6` | PERF_CNT_1 |
+| PERF_CNT_2 | `7` | PERF_CNT_2 |
+| PERF_CNT_3 | `8` | PERF_CNT_3 |
+| COMBO_EVENT_0 | `9` | COMBO_EVENT_0 |
+| COMBO_EVENT_1 | `10` | COMBO_EVENT_1 |
+| COMBO_EVENT_2 | `11` | COMBO_EVENT_2 |
+| COMBO_EVENT_3 | `12` | COMBO_EVENT_3 |
+| GROUP_PC_EVENT | `15` | GROUP_PC_EVENT |
+| PC_0 | `16` | PC_0 |
+| PC_1 | `17` | PC_1 |
+| PC_2 | `18` | PC_2 |
+| PC_3 | `19` | PC_3 |
+| PC_RANGE_0_1 | `20` | PC_RANGE_0_1 |
+| PC_RANGE_2_3 | `21` | PC_RANGE_2_3 |
+| GROUP_STALL | `22` | GROUP_STALL |
+| MEMORY_STALL | `23` | MEMORY_STALL |
+| STREAM_STALL | `24` | STREAM_STALL |
+| CASCADE_STALL | `25` | CASCADE_STALL |
+| LOCK_STALL | `26` | LOCK_STALL |
+| DEBUG_HALTED | `27` | DEBUG_HALTED |
+| ACTIVE | `28` | ACTIVE |
+| DISABLED | `29` | DISABLED |
+| ECC_ERROR_STALL | `30` | ECC_ERROR_STALL |
+| ECC_SCRUBBING_STALL | `31` | ECC_SCRUBBING_STALL |
+| GROUP_PROGRAM_FLOW | `32` | GROUP_PROGRAM_FLOW |
+| INSTR_EVENT_0 | `33` | INSTR_EVENT_0 |
+| INSTR_EVENT_1 | `34` | INSTR_EVENT_1 |
+| INSTR_CALL | `35` | INSTR_CALL |
+| INSTR_RETURN | `36` | INSTR_RETURN |
+| INSTR_VECTOR | `37` | INSTR_VECTOR |
+| INSTR_LOAD | `38` | INSTR_LOAD |
+| INSTR_STORE | `39` | INSTR_STORE |
+| INSTR_STREAM_GET | `40` | INSTR_STREAM_GET |
+| INSTR_STREAM_PUT | `41` | INSTR_STREAM_PUT |
+| INSTR_CASCADE_GET | `42` | INSTR_CASCADE_GET |
+| INSTR_CASCADE_PUT | `43` | INSTR_CASCADE_PUT |
+| INSTR_LOCK_ACQUIRE_REQ | `44` | INSTR_LOCK_ACQUIRE_REQ |
+| INSTR_LOCK_RELEASE_REQ | `45` | INSTR_LOCK_RELEASE_REQ |
+| GROUP_ERRORS_0 | `46` | GROUP_ERRORS_0 |
+| GROUP_ERRORS_1 | `47` | GROUP_ERRORS_1 |
+| SRS_SATURATE | `48` | SRS_SATURATE |
+| UPS_SATURATE | `49` | UPS_SATURATE |
+| FP_OVERFLOW | `50` | FP_OVERFLOW |
+| FP_UNDERFLOW | `51` | FP_UNDERFLOW |
+| FP_INVALID | `52` | FP_INVALID |
+| FP_DIV_BY_ZERO | `53` | FP_DIV_BY_ZERO |
+| TLAST_IN_WSS_WORDS_0_2 | `54` | TLAST_IN_WSS_WORDS_0_2 |
+| PM_REG_ACCESS_FAILURE | `55` | PM_REG_ACCESS_FAILURE |
+| STREAM_PKT_PARITY_ERROR | `56` | STREAM_PKT_PARITY_ERROR |
+| CONTROL_PKT_ERROR | `57` | CONTROL_PKT_ERROR |
+| AXI_MM_SLAVE_ERROR | `58` | AXI_MM_SLAVE_ERROR |
+| INSTR_DECOMPRSN_ERROR | `59` | INSTR_DECOMPRSN_ERROR |
+| DM_ADDRESS_OUT_OF_RANGE | `60` | DM_ADDRESS_OUT_OF_RANGE |
+| PM_ECC_ERROR_SCRUB_CORRECTED | `61` | PM_ECC_ERROR_SCRUB_CORRECTED |
+| PM_ECC_ERROR_SCRUB_2BIT | `62` | PM_ECC_ERROR_SCRUB_2BIT |
+| PM_ECC_ERROR_1BIT | `63` | PM_ECC_ERROR_1BIT |
+| PM_ECC_ERROR_2BIT | `64` | PM_ECC_ERROR_2BIT |
+| PM_ADDRESS_OUT_OF_RANGE | `65` | PM_ADDRESS_OUT_OF_RANGE |
+| DM_ACCESS_TO_UNAVAILABLE | `66` | DM_ACCESS_TO_UNAVAILABLE |
+| LOCK_ACCESS_TO_UNAVAILABLE | `67` | LOCK_ACCESS_TO_UNAVAILABLE |
+| INSTR_EVENT_2 | `68` | INSTR_EVENT_2 |
+| INSTR_EVENT_3 | `69` | INSTR_EVENT_3 |
+| GROUP_STREAM_SWITCH | `73` | GROUP_STREAM_SWITCH |
+| PORT_IDLE_0 | `74` | PORT_IDLE_0 |
+| PORT_RUNNING_0 | `75` | PORT_RUNNING_0 |
+| PORT_STALLED_0 | `76` | PORT_STALLED_0 |
+| PORT_TLAST_0 | `77` | PORT_TLAST_0 |
+| PORT_IDLE_1 | `78` | PORT_IDLE_1 |
+| PORT_RUNNING_1 | `79` | PORT_RUNNING_1 |
+| PORT_STALLED_1 | `80` | PORT_STALLED_1 |
+| PORT_TLAST_1 | `81` | PORT_TLAST_1 |
+| PORT_IDLE_2 | `82` | PORT_IDLE_2 |
+| PORT_RUNNING_2 | `83` | PORT_RUNNING_2 |
+| PORT_STALLED_2 | `84` | PORT_STALLED_2 |
+| PORT_TLAST_2 | `85` | PORT_TLAST_2 |
+| PORT_IDLE_3 | `86` | PORT_IDLE_3 |
+| PORT_RUNNING_3 | `87` | PORT_RUNNING_3 |
+| PORT_STALLED_3 | `88` | PORT_STALLED_3 |
+| PORT_TLAST_3 | `89` | PORT_TLAST_3 |
+| PORT_IDLE_4 | `90` | PORT_IDLE_4 |
+| PORT_RUNNING_4 | `91` | PORT_RUNNING_4 |
+| PORT_STALLED_4 | `92` | PORT_STALLED_4 |
+| PORT_TLAST_4 | `93` | PORT_TLAST_4 |
+| PORT_IDLE_5 | `94` | PORT_IDLE_5 |
+| PORT_RUNNING_5 | `95` | PORT_RUNNING_5 |
+| PORT_STALLED_5 | `96` | PORT_STALLED_5 |
+| PORT_TLAST_5 | `97` | PORT_TLAST_5 |
+| PORT_IDLE_6 | `98` | PORT_IDLE_6 |
+| PORT_RUNNING_6 | `99` | PORT_RUNNING_6 |
+| PORT_STALLED_6 | `100` | PORT_STALLED_6 |
+| PORT_TLAST_6 | `101` | PORT_TLAST_6 |
+| PORT_IDLE_7 | `102` | PORT_IDLE_7 |
+| PORT_RUNNING_7 | `103` | PORT_RUNNING_7 |
+| PORT_STALLED_7 | `104` | PORT_STALLED_7 |
+| PORT_TLAST_7 | `105` | PORT_TLAST_7 |
+| GROUP_BROADCAST | `106` | GROUP_BROADCAST |
+| BROADCAST_0 | `107` | BROADCAST_0 |
+| BROADCAST_1 | `108` | BROADCAST_1 |
+| BROADCAST_2 | `109` | BROADCAST_2 |
+| BROADCAST_3 | `110` | BROADCAST_3 |
+| BROADCAST_4 | `111` | BROADCAST_4 |
+| BROADCAST_5 | `112` | BROADCAST_5 |
+| BROADCAST_6 | `113` | BROADCAST_6 |
+| BROADCAST_7 | `114` | BROADCAST_7 |
+| BROADCAST_8 | `115` | BROADCAST_8 |
+| BROADCAST_9 | `116` | BROADCAST_9 |
+| BROADCAST_10 | `117` | BROADCAST_10 |
+| BROADCAST_11 | `118` | BROADCAST_11 |
+| BROADCAST_12 | `119` | BROADCAST_12 |
+| BROADCAST_13 | `120` | BROADCAST_13 |
+| BROADCAST_14 | `121` | BROADCAST_14 |
+| BROADCAST_15 | `122` | BROADCAST_15 |
+| GROUP_USER_EVENT | `123` | GROUP_USER_EVENT |
+| USER_EVENT_0 | `124` | USER_EVENT_0 |
+| USER_EVENT_1 | `125` | USER_EVENT_1 |
+| USER_EVENT_2 | `126` | USER_EVENT_2 |
+| USER_EVENT_3 | `127` | USER_EVENT_3 |
+
+### CoreEventAIE2
+
+_Core module event enumeration for AIE2_
+
+#### Cases:
+
+| Symbol | Value | String |
+| :----: | :---: | ------ |
+| NONE | `0` | NONE |
+| TRUE | `1` | TRUE |
+| GROUP_0 | `2` | GROUP_0 |
+| TIMER_SYNC | `3` | TIMER_SYNC |
+| TIMER_VALUE_REACHED | `4` | TIMER_VALUE_REACHED |
+| PERF_CNT_0 | `5` | PERF_CNT_0 |
+| PERF_CNT_1 | `6` | PERF_CNT_1 |
+| PERF_CNT_2 | `7` | PERF_CNT_2 |
+| PERF_CNT_3 | `8` | PERF_CNT_3 |
+| COMBO_EVENT_0 | `9` | COMBO_EVENT_0 |
+| COMBO_EVENT_1 | `10` | COMBO_EVENT_1 |
+| COMBO_EVENT_2 | `11` | COMBO_EVENT_2 |
+| COMBO_EVENT_3 | `12` | COMBO_EVENT_3 |
+| EDGE_DETECTION_EVENT_0 | `13` | EDGE_DETECTION_EVENT_0 |
+| EDGE_DETECTION_EVENT_1 | `14` | EDGE_DETECTION_EVENT_1 |
+| GROUP_PC_EVENT | `15` | GROUP_PC_EVENT |
+| PC_0 | `16` | PC_0 |
+| PC_1 | `17` | PC_1 |
+| PC_2 | `18` | PC_2 |
+| PC_3 | `19` | PC_3 |
+| PC_RANGE_0_1 | `20` | PC_RANGE_0_1 |
+| PC_RANGE_2_3 | `21` | PC_RANGE_2_3 |
+| GROUP_STALL | `22` | GROUP_STALL |
+| MEMORY_STALL | `23` | MEMORY_STALL |
+| STREAM_STALL | `24` | STREAM_STALL |
+| CASCADE_STALL | `25` | CASCADE_STALL |
+| LOCK_STALL | `26` | LOCK_STALL |
+| DEBUG_HALTED | `27` | DEBUG_HALTED |
+| ACTIVE | `28` | ACTIVE |
+| DISABLED | `29` | DISABLED |
+| ECC_ERROR_STALL | `30` | ECC_ERROR_STALL |
+| ECC_SCRUBBING_STALL | `31` | ECC_SCRUBBING_STALL |
+| GROUP_PROGRAM_FLOW | `32` | GROUP_PROGRAM_FLOW |
+| INSTR_EVENT_0 | `33` | INSTR_EVENT_0 |
+| INSTR_EVENT_1 | `34` | INSTR_EVENT_1 |
+| INSTR_CALL | `35` | INSTR_CALL |
+| INSTR_RETURN | `36` | INSTR_RETURN |
+| INSTR_VECTOR | `37` | INSTR_VECTOR |
+| INSTR_LOAD | `38` | INSTR_LOAD |
+| INSTR_STORE | `39` | INSTR_STORE |
+| INSTR_STREAM_GET | `40` | INSTR_STREAM_GET |
+| INSTR_STREAM_PUT | `41` | INSTR_STREAM_PUT |
+| INSTR_CASCADE_GET | `42` | INSTR_CASCADE_GET |
+| INSTR_CASCADE_PUT | `43` | INSTR_CASCADE_PUT |
+| INSTR_LOCK_ACQUIRE_REQ | `44` | INSTR_LOCK_ACQUIRE_REQ |
+| INSTR_LOCK_RELEASE_REQ | `45` | INSTR_LOCK_RELEASE_REQ |
+| GROUP_ERRORS_0 | `46` | GROUP_ERRORS_0 |
+| GROUP_ERRORS_1 | `47` | GROUP_ERRORS_1 |
+| SRS_OVERFLOW | `48` | SRS_OVERFLOW |
+| UPS_OVERFLOW | `49` | UPS_OVERFLOW |
+| FP_HUGE | `50` | FP_HUGE |
+| INT_FP_0 | `51` | INT_FP_0 |
+| FP_INVALID | `52` | FP_INVALID |
+| FP_INF | `53` | FP_INF |
+| PM_REG_ACCESS_FAILURE | `55` | PM_REG_ACCESS_FAILURE |
+| STREAM_PKT_PARITY_ERROR | `56` | STREAM_PKT_PARITY_ERROR |
+| CONTROL_PKT_ERROR | `57` | CONTROL_PKT_ERROR |
+| AXI_MM_SLAVE_ERROR | `58` | AXI_MM_SLAVE_ERROR |
+| INSTR_DECOMPRSN_ERROR | `59` | INSTR_DECOMPRSN_ERROR |
+| DM_ADDRESS_OUT_OF_RANGE | `60` | DM_ADDRESS_OUT_OF_RANGE |
+| PM_ECC_ERROR_SCRUB_CORRECTED | `61` | PM_ECC_ERROR_SCRUB_CORRECTED |
+| PM_ECC_ERROR_SCRUB_2BIT | `62` | PM_ECC_ERROR_SCRUB_2BIT |
+| PM_ECC_ERROR_1BIT | `63` | PM_ECC_ERROR_1BIT |
+| PM_ECC_ERROR_2BIT | `64` | PM_ECC_ERROR_2BIT |
+| PM_ADDRESS_OUT_OF_RANGE | `65` | PM_ADDRESS_OUT_OF_RANGE |
+| DM_ACCESS_TO_UNAVAILABLE | `66` | DM_ACCESS_TO_UNAVAILABLE |
+| LOCK_ACCESS_TO_UNAVAILABLE | `67` | LOCK_ACCESS_TO_UNAVAILABLE |
+| INSTR_WARNING | `68` | INSTR_WARNING |
+| INSTR_ERROR | `69` | INSTR_ERROR |
+| DECOMPRESSION_UNDERFLOW | `70` | DECOMPRESSION_UNDERFLOW |
+| STREAM_SWITCH_PORT_PARITY_ERROR | `71` | STREAM_SWITCH_PORT_PARITY_ERROR |
+| PROCESSOR_BUS_ERROR | `72` | PROCESSOR_BUS_ERROR |
+| GROUP_STREAM_SWITCH | `73` | GROUP_STREAM_SWITCH |
+| PORT_IDLE_0 | `74` | PORT_IDLE_0 |
+| PORT_RUNNING_0 | `75` | PORT_RUNNING_0 |
+| PORT_STALLED_0 | `76` | PORT_STALLED_0 |
+| PORT_TLAST_0 | `77` | PORT_TLAST_0 |
+| PORT_IDLE_1 | `78` | PORT_IDLE_1 |
+| PORT_RUNNING_1 | `79` | PORT_RUNNING_1 |
+| PORT_STALLED_1 | `80` | PORT_STALLED_1 |
+| PORT_TLAST_1 | `81` | PORT_TLAST_1 |
+| PORT_IDLE_2 | `82` | PORT_IDLE_2 |
+| PORT_RUNNING_2 | `83` | PORT_RUNNING_2 |
+| PORT_STALLED_2 | `84` | PORT_STALLED_2 |
+| PORT_TLAST_2 | `85` | PORT_TLAST_2 |
+| PORT_IDLE_3 | `86` | PORT_IDLE_3 |
+| PORT_RUNNING_3 | `87` | PORT_RUNNING_3 |
+| PORT_STALLED_3 | `88` | PORT_STALLED_3 |
+| PORT_TLAST_3 | `89` | PORT_TLAST_3 |
+| PORT_IDLE_4 | `90` | PORT_IDLE_4 |
+| PORT_RUNNING_4 | `91` | PORT_RUNNING_4 |
+| PORT_STALLED_4 | `92` | PORT_STALLED_4 |
+| PORT_TLAST_4 | `93` | PORT_TLAST_4 |
+| PORT_IDLE_5 | `94` | PORT_IDLE_5 |
+| PORT_RUNNING_5 | `95` | PORT_RUNNING_5 |
+| PORT_STALLED_5 | `96` | PORT_STALLED_5 |
+| PORT_TLAST_5 | `97` | PORT_TLAST_5 |
+| PORT_IDLE_6 | `98` | PORT_IDLE_6 |
+| PORT_RUNNING_6 | `99` | PORT_RUNNING_6 |
+| PORT_STALLED_6 | `100` | PORT_STALLED_6 |
+| PORT_TLAST_6 | `101` | PORT_TLAST_6 |
+| PORT_IDLE_7 | `102` | PORT_IDLE_7 |
+| PORT_RUNNING_7 | `103` | PORT_RUNNING_7 |
+| PORT_STALLED_7 | `104` | PORT_STALLED_7 |
+| PORT_TLAST_7 | `105` | PORT_TLAST_7 |
+| GROUP_BROADCAST | `106` | GROUP_BROADCAST |
+| BROADCAST_0 | `107` | BROADCAST_0 |
+| BROADCAST_1 | `108` | BROADCAST_1 |
+| BROADCAST_2 | `109` | BROADCAST_2 |
+| BROADCAST_3 | `110` | BROADCAST_3 |
+| BROADCAST_4 | `111` | BROADCAST_4 |
+| BROADCAST_5 | `112` | BROADCAST_5 |
+| BROADCAST_6 | `113` | BROADCAST_6 |
+| BROADCAST_7 | `114` | BROADCAST_7 |
+| BROADCAST_8 | `115` | BROADCAST_8 |
+| BROADCAST_9 | `116` | BROADCAST_9 |
+| BROADCAST_10 | `117` | BROADCAST_10 |
+| BROADCAST_11 | `118` | BROADCAST_11 |
+| BROADCAST_12 | `119` | BROADCAST_12 |
+| BROADCAST_13 | `120` | BROADCAST_13 |
+| BROADCAST_14 | `121` | BROADCAST_14 |
+| BROADCAST_15 | `122` | BROADCAST_15 |
+| GROUP_USER_EVENT | `123` | GROUP_USER_EVENT |
+| USER_EVENT_0 | `124` | USER_EVENT_0 |
+| USER_EVENT_1 | `125` | USER_EVENT_1 |
+| USER_EVENT_2 | `126` | USER_EVENT_2 |
+| USER_EVENT_3 | `127` | USER_EVENT_3 |
+
+### CoreEventAIE2P
+
+_Core module event enumeration for AIE2P_
+
+#### Cases:
+
+| Symbol | Value | String |
+| :----: | :---: | ------ |
+| NONE | `0` | NONE |
+| TRUE | `1` | TRUE |
+| GROUP_0 | `2` | GROUP_0 |
+| TIMER_SYNC | `3` | TIMER_SYNC |
+| TIMER_VALUE_REACHED | `4` | TIMER_VALUE_REACHED |
+| PERF_CNT_0 | `5` | PERF_CNT_0 |
+| PERF_CNT_1 | `6` | PERF_CNT_1 |
+| PERF_CNT_2 | `7` | PERF_CNT_2 |
+| PERF_CNT_3 | `8` | PERF_CNT_3 |
+| COMBO_EVENT_0 | `9` | COMBO_EVENT_0 |
+| COMBO_EVENT_1 | `10` | COMBO_EVENT_1 |
+| COMBO_EVENT_2 | `11` | COMBO_EVENT_2 |
+| COMBO_EVENT_3 | `12` | COMBO_EVENT_3 |
+| EDGE_DETECTION_EVENT_0 | `13` | EDGE_DETECTION_EVENT_0 |
+| EDGE_DETECTION_EVENT_1 | `14` | EDGE_DETECTION_EVENT_1 |
+| GROUP_PC_EVENT | `15` | GROUP_PC_EVENT |
+| PC_0 | `16` | PC_0 |
+| PC_1 | `17` | PC_1 |
+| PC_2 | `18` | PC_2 |
+| PC_3 | `19` | PC_3 |
+| PC_RANGE_0_1 | `20` | PC_RANGE_0_1 |
+| PC_RANGE_2_3 | `21` | PC_RANGE_2_3 |
+| GROUP_STALL | `22` | GROUP_STALL |
+| MEMORY_STALL | `23` | MEMORY_STALL |
+| STREAM_STALL | `24` | STREAM_STALL |
+| CASCADE_STALL | `25` | CASCADE_STALL |
+| LOCK_STALL | `26` | LOCK_STALL |
+| DEBUG_HALTED | `27` | DEBUG_HALTED |
+| ACTIVE | `28` | ACTIVE |
+| DISABLED | `29` | DISABLED |
+| ECC_ERROR_STALL | `30` | ECC_ERROR_STALL |
+| ECC_SCRUBBING_STALL | `31` | ECC_SCRUBBING_STALL |
+| GROUP_PROGRAM_FLOW | `32` | GROUP_PROGRAM_FLOW |
+| INSTR_EVENT_0 | `33` | INSTR_EVENT_0 |
+| INSTR_EVENT_1 | `34` | INSTR_EVENT_1 |
+| INSTR_CALL | `35` | INSTR_CALL |
+| INSTR_RETURN | `36` | INSTR_RETURN |
+| INSTR_VECTOR | `37` | INSTR_VECTOR |
+| INSTR_LOAD | `38` | INSTR_LOAD |
+| INSTR_STORE | `39` | INSTR_STORE |
+| INSTR_STREAM_GET | `40` | INSTR_STREAM_GET |
+| INSTR_STREAM_PUT | `41` | INSTR_STREAM_PUT |
+| INSTR_CASCADE_GET | `42` | INSTR_CASCADE_GET |
+| INSTR_CASCADE_PUT | `43` | INSTR_CASCADE_PUT |
+| INSTR_LOCK_ACQUIRE_REQ | `44` | INSTR_LOCK_ACQUIRE_REQ |
+| INSTR_LOCK_RELEASE_REQ | `45` | INSTR_LOCK_RELEASE_REQ |
+| GROUP_ERRORS_0 | `46` | GROUP_ERRORS_0 |
+| GROUP_ERRORS_1 | `47` | GROUP_ERRORS_1 |
+| SRS_OVERFLOW | `48` | SRS_OVERFLOW |
+| UPS_OVERFLOW | `49` | UPS_OVERFLOW |
+| FP_HUGE | `50` | FP_HUGE |
+| INT_FP_0 | `51` | INT_FP_0 |
+| FP_INVALID | `52` | FP_INVALID |
+| FP_INF | `53` | FP_INF |
+| PM_REG_ACCESS_FAILURE | `55` | PM_REG_ACCESS_FAILURE |
+| STREAM_PKT_PARITY_ERROR | `56` | STREAM_PKT_PARITY_ERROR |
+| CONTROL_PKT_ERROR | `57` | CONTROL_PKT_ERROR |
+| AXI_MM_SLAVE_ERROR | `58` | AXI_MM_SLAVE_ERROR |
+| INSTR_DECOMPRSN_ERROR | `59` | INSTR_DECOMPRSN_ERROR |
+| DM_ADDRESS_OUT_OF_RANGE | `60` | DM_ADDRESS_OUT_OF_RANGE |
+| PM_ECC_ERROR_SCRUB_CORRECTED | `61` | PM_ECC_ERROR_SCRUB_CORRECTED |
+| PM_ECC_ERROR_SCRUB_2BIT | `62` | PM_ECC_ERROR_SCRUB_2BIT |
+| PM_ECC_ERROR_1BIT | `63` | PM_ECC_ERROR_1BIT |
+| PM_ECC_ERROR_2BIT | `64` | PM_ECC_ERROR_2BIT |
+| PM_ADDRESS_OUT_OF_RANGE | `65` | PM_ADDRESS_OUT_OF_RANGE |
+| DM_ACCESS_TO_UNAVAILABLE | `66` | DM_ACCESS_TO_UNAVAILABLE |
+| LOCK_ACCESS_TO_UNAVAILABLE | `67` | LOCK_ACCESS_TO_UNAVAILABLE |
+| INSTR_WARNING | `68` | INSTR_WARNING |
+| INSTR_ERROR | `69` | INSTR_ERROR |
+| SPARSITY_OVERFLOW | `70` | SPARSITY_OVERFLOW |
+| STREAM_SWITCH_PORT_PARITY_ERROR | `71` | STREAM_SWITCH_PORT_PARITY_ERROR |
+| PROCESSOR_BUS_ERROR | `72` | PROCESSOR_BUS_ERROR |
+| GROUP_STREAM_SWITCH | `73` | GROUP_STREAM_SWITCH |
+| PORT_IDLE_0 | `74` | PORT_IDLE_0 |
+| PORT_RUNNING_0 | `75` | PORT_RUNNING_0 |
+| PORT_STALLED_0 | `76` | PORT_STALLED_0 |
+| PORT_TLAST_0 | `77` | PORT_TLAST_0 |
+| PORT_IDLE_1 | `78` | PORT_IDLE_1 |
+| PORT_RUNNING_1 | `79` | PORT_RUNNING_1 |
+| PORT_STALLED_1 | `80` | PORT_STALLED_1 |
+| PORT_TLAST_1 | `81` | PORT_TLAST_1 |
+| PORT_IDLE_2 | `82` | PORT_IDLE_2 |
+| PORT_RUNNING_2 | `83` | PORT_RUNNING_2 |
+| PORT_STALLED_2 | `84` | PORT_STALLED_2 |
+| PORT_TLAST_2 | `85` | PORT_TLAST_2 |
+| PORT_IDLE_3 | `86` | PORT_IDLE_3 |
+| PORT_RUNNING_3 | `87` | PORT_RUNNING_3 |
+| PORT_STALLED_3 | `88` | PORT_STALLED_3 |
+| PORT_TLAST_3 | `89` | PORT_TLAST_3 |
+| PORT_IDLE_4 | `90` | PORT_IDLE_4 |
+| PORT_RUNNING_4 | `91` | PORT_RUNNING_4 |
+| PORT_STALLED_4 | `92` | PORT_STALLED_4 |
+| PORT_TLAST_4 | `93` | PORT_TLAST_4 |
+| PORT_IDLE_5 | `94` | PORT_IDLE_5 |
+| PORT_RUNNING_5 | `95` | PORT_RUNNING_5 |
+| PORT_STALLED_5 | `96` | PORT_STALLED_5 |
+| PORT_TLAST_5 | `97` | PORT_TLAST_5 |
+| PORT_IDLE_6 | `98` | PORT_IDLE_6 |
+| PORT_RUNNING_6 | `99` | PORT_RUNNING_6 |
+| PORT_STALLED_6 | `100` | PORT_STALLED_6 |
+| PORT_TLAST_6 | `101` | PORT_TLAST_6 |
+| PORT_IDLE_7 | `102` | PORT_IDLE_7 |
+| PORT_RUNNING_7 | `103` | PORT_RUNNING_7 |
+| PORT_STALLED_7 | `104` | PORT_STALLED_7 |
+| PORT_TLAST_7 | `105` | PORT_TLAST_7 |
+| GROUP_BROADCAST | `106` | GROUP_BROADCAST |
+| BROADCAST_0 | `107` | BROADCAST_0 |
+| BROADCAST_1 | `108` | BROADCAST_1 |
+| BROADCAST_2 | `109` | BROADCAST_2 |
+| BROADCAST_3 | `110` | BROADCAST_3 |
+| BROADCAST_4 | `111` | BROADCAST_4 |
+| BROADCAST_5 | `112` | BROADCAST_5 |
+| BROADCAST_6 | `113` | BROADCAST_6 |
+| BROADCAST_7 | `114` | BROADCAST_7 |
+| BROADCAST_8 | `115` | BROADCAST_8 |
+| BROADCAST_9 | `116` | BROADCAST_9 |
+| BROADCAST_10 | `117` | BROADCAST_10 |
+| BROADCAST_11 | `118` | BROADCAST_11 |
+| BROADCAST_12 | `119` | BROADCAST_12 |
+| BROADCAST_13 | `120` | BROADCAST_13 |
+| BROADCAST_14 | `121` | BROADCAST_14 |
+| BROADCAST_15 | `122` | BROADCAST_15 |
+| GROUP_USER_EVENT | `123` | GROUP_USER_EVENT |
+| USER_EVENT_0 | `124` | USER_EVENT_0 |
+| USER_EVENT_1 | `125` | USER_EVENT_1 |
+| USER_EVENT_2 | `126` | USER_EVENT_2 |
+| USER_EVENT_3 | `127` | USER_EVENT_3 |
+
 ### DMAChannelDir
 
 _DMA Channel direction_
@@ -2269,6 +3491,18 @@ _DMA Channel direction_
 | :----: | :---: | ------ |
 | S2MM | `0` | S2MM |
 | MM2S | `1` | MM2S |
+
+### EdgeTrigger
+
+_Edge detection trigger mode_
+
+#### Cases:
+
+| Symbol | Value | String |
+| :----: | :---: | ------ |
+| RISING | `1` | RISING |
+| FALLING | `2` | FALLING |
+| BOTH | `3` | BOTH |
 
 ### LockAction
 
@@ -2293,6 +3527,740 @@ _Lock operation is blocking_
 | NonBlocking | `0` | NonBlocking |
 | Blocking | `1` | Blocking |
 
+### MemEventAIE
+
+_Memory module event enumeration for AIE_
+
+#### Cases:
+
+| Symbol | Value | String |
+| :----: | :---: | ------ |
+| NONE | `0` | NONE |
+| TRUE | `1` | TRUE |
+| GROUP_0 | `2` | GROUP_0 |
+| TIMER_SYNC | `3` | TIMER_SYNC |
+| TIMER_VALUE_REACHED | `4` | TIMER_VALUE_REACHED |
+| PERF_CNT_0 | `5` | PERF_CNT_0 |
+| PERF_CNT_1 | `6` | PERF_CNT_1 |
+| COMBO_EVENT_0 | `7` | COMBO_EVENT_0 |
+| COMBO_EVENT_1 | `8` | COMBO_EVENT_1 |
+| COMBO_EVENT_2 | `9` | COMBO_EVENT_2 |
+| COMBO_EVENT_3 | `10` | COMBO_EVENT_3 |
+| GROUP_WATCHPOINT | `15` | GROUP_WATCHPOINT |
+| WATCHPOINT_0 | `16` | WATCHPOINT_0 |
+| WATCHPOINT_1 | `17` | WATCHPOINT_1 |
+| GROUP_DMA_ACTIVITY | `20` | GROUP_DMA_ACTIVITY |
+| DMA_S2MM_0_START_BD | `21` | DMA_S2MM_0_START_BD |
+| DMA_S2MM_1_START_BD | `22` | DMA_S2MM_1_START_BD |
+| DMA_MM2S_0_START_BD | `23` | DMA_MM2S_0_START_BD |
+| DMA_MM2S_1_START_BD | `24` | DMA_MM2S_1_START_BD |
+| DMA_S2MM_0_FINISHED_BD | `25` | DMA_S2MM_0_FINISHED_BD |
+| DMA_S2MM_1_FINISHED_BD | `26` | DMA_S2MM_1_FINISHED_BD |
+| DMA_MM2S_0_FINISHED_BD | `27` | DMA_MM2S_0_FINISHED_BD |
+| DMA_MM2S_1_FINISHED_BD | `28` | DMA_MM2S_1_FINISHED_BD |
+| DMA_S2MM_0_GO_TO_IDLE | `29` | DMA_S2MM_0_GO_TO_IDLE |
+| DMA_S2MM_1_GO_TO_IDLE | `30` | DMA_S2MM_1_GO_TO_IDLE |
+| DMA_MM2S_0_GO_TO_IDLE | `31` | DMA_MM2S_0_GO_TO_IDLE |
+| DMA_MM2S_1_GO_TO_IDLE | `32` | DMA_MM2S_1_GO_TO_IDLE |
+| DMA_S2MM_0_STALLED_LOCK_ACQUIRE | `33` | DMA_S2MM_0_STALLED_LOCK_ACQUIRE |
+| DMA_S2MM_1_STALLED_LOCK_ACQUIRE | `34` | DMA_S2MM_1_STALLED_LOCK_ACQUIRE |
+| DMA_MM2S_0_STALLED_LOCK_ACQUIRE | `35` | DMA_MM2S_0_STALLED_LOCK_ACQUIRE |
+| DMA_MM2S_1_STALLED_LOCK_ACQUIRE | `36` | DMA_MM2S_1_STALLED_LOCK_ACQUIRE |
+| DMA_S2MM_0_MEMORY_CONFLICT | `37` | DMA_S2MM_0_MEMORY_CONFLICT |
+| DMA_S2MM_1_MEMORY_CONFLICT | `38` | DMA_S2MM_1_MEMORY_CONFLICT |
+| DMA_MM2S_0_MEMORY_CONFLICT | `39` | DMA_MM2S_0_MEMORY_CONFLICT |
+| DMA_MM2S_1_MEMORY_CONFLICT | `40` | DMA_MM2S_1_MEMORY_CONFLICT |
+| GROUP_LOCK | `43` | GROUP_LOCK |
+| LOCK_0_ACQ | `44` | LOCK_0_ACQ |
+| LOCK_0_REL | `45` | LOCK_0_REL |
+| LOCK_1_ACQ | `46` | LOCK_1_ACQ |
+| LOCK_1_REL | `47` | LOCK_1_REL |
+| LOCK_2_ACQ | `48` | LOCK_2_ACQ |
+| LOCK_2_REL | `49` | LOCK_2_REL |
+| LOCK_3_ACQ | `50` | LOCK_3_ACQ |
+| LOCK_3_REL | `51` | LOCK_3_REL |
+| LOCK_4_ACQ | `52` | LOCK_4_ACQ |
+| LOCK_4_REL | `53` | LOCK_4_REL |
+| LOCK_5_ACQ | `54` | LOCK_5_ACQ |
+| LOCK_5_REL | `55` | LOCK_5_REL |
+| LOCK_6_ACQ | `56` | LOCK_6_ACQ |
+| LOCK_6_REL | `57` | LOCK_6_REL |
+| LOCK_7_ACQ | `58` | LOCK_7_ACQ |
+| LOCK_7_REL | `59` | LOCK_7_REL |
+| LOCK_8_ACQ | `60` | LOCK_8_ACQ |
+| LOCK_8_REL | `61` | LOCK_8_REL |
+| LOCK_9_ACQ | `62` | LOCK_9_ACQ |
+| LOCK_9_REL | `63` | LOCK_9_REL |
+| LOCK_10_ACQ | `64` | LOCK_10_ACQ |
+| LOCK_10_REL | `65` | LOCK_10_REL |
+| LOCK_11_ACQ | `66` | LOCK_11_ACQ |
+| LOCK_11_REL | `67` | LOCK_11_REL |
+| LOCK_12_ACQ | `68` | LOCK_12_ACQ |
+| LOCK_12_REL | `69` | LOCK_12_REL |
+| LOCK_13_ACQ | `70` | LOCK_13_ACQ |
+| LOCK_13_REL | `71` | LOCK_13_REL |
+| LOCK_14_ACQ | `72` | LOCK_14_ACQ |
+| LOCK_14_REL | `73` | LOCK_14_REL |
+| LOCK_15_ACQ | `74` | LOCK_15_ACQ |
+| LOCK_15_REL | `75` | LOCK_15_REL |
+| GROUP_MEMORY_CONFLICT | `76` | GROUP_MEMORY_CONFLICT |
+| CONFLICT_DM_BANK_0 | `77` | CONFLICT_DM_BANK_0 |
+| CONFLICT_DM_BANK_1 | `78` | CONFLICT_DM_BANK_1 |
+| CONFLICT_DM_BANK_2 | `79` | CONFLICT_DM_BANK_2 |
+| CONFLICT_DM_BANK_3 | `80` | CONFLICT_DM_BANK_3 |
+| CONFLICT_DM_BANK_4 | `81` | CONFLICT_DM_BANK_4 |
+| CONFLICT_DM_BANK_5 | `82` | CONFLICT_DM_BANK_5 |
+| CONFLICT_DM_BANK_6 | `83` | CONFLICT_DM_BANK_6 |
+| CONFLICT_DM_BANK_7 | `84` | CONFLICT_DM_BANK_7 |
+| GROUP_ERRORS | `86` | GROUP_ERRORS |
+| DM_ECC_ERROR_SCRUB_CORRECTED | `87` | DM_ECC_ERROR_SCRUB_CORRECTED |
+| DM_ECC_ERROR_SCRUB_2BIT | `88` | DM_ECC_ERROR_SCRUB_2BIT |
+| DM_ECC_ERROR_1BIT | `89` | DM_ECC_ERROR_1BIT |
+| DM_ECC_ERROR_2BIT | `90` | DM_ECC_ERROR_2BIT |
+| DM_PARITY_ERROR_BANK_2 | `91` | DM_PARITY_ERROR_BANK_2 |
+| DM_PARITY_ERROR_BANK_3 | `92` | DM_PARITY_ERROR_BANK_3 |
+| DM_PARITY_ERROR_BANK_4 | `93` | DM_PARITY_ERROR_BANK_4 |
+| DM_PARITY_ERROR_BANK_5 | `94` | DM_PARITY_ERROR_BANK_5 |
+| DM_PARITY_ERROR_BANK_6 | `95` | DM_PARITY_ERROR_BANK_6 |
+| DM_PARITY_ERROR_BANK_7 | `96` | DM_PARITY_ERROR_BANK_7 |
+| DMA_S2MM_0_ERROR | `97` | DMA_S2MM_0_ERROR |
+| DMA_S2MM_1_ERROR | `98` | DMA_S2MM_1_ERROR |
+| DMA_MM2S_0_ERROR | `99` | DMA_MM2S_0_ERROR |
+| DMA_MM2S_1_ERROR | `100` | DMA_MM2S_1_ERROR |
+| GROUP_BROADCAST | `106` | GROUP_BROADCAST |
+| BROADCAST_0 | `107` | BROADCAST_0 |
+| BROADCAST_1 | `108` | BROADCAST_1 |
+| BROADCAST_2 | `109` | BROADCAST_2 |
+| BROADCAST_3 | `110` | BROADCAST_3 |
+| BROADCAST_4 | `111` | BROADCAST_4 |
+| BROADCAST_5 | `112` | BROADCAST_5 |
+| BROADCAST_6 | `113` | BROADCAST_6 |
+| BROADCAST_7 | `114` | BROADCAST_7 |
+| BROADCAST_8 | `115` | BROADCAST_8 |
+| BROADCAST_9 | `116` | BROADCAST_9 |
+| BROADCAST_10 | `117` | BROADCAST_10 |
+| BROADCAST_11 | `118` | BROADCAST_11 |
+| BROADCAST_12 | `119` | BROADCAST_12 |
+| BROADCAST_13 | `120` | BROADCAST_13 |
+| BROADCAST_14 | `121` | BROADCAST_14 |
+| BROADCAST_15 | `122` | BROADCAST_15 |
+| GROUP_USER_EVENT | `123` | GROUP_USER_EVENT |
+| USER_EVENT_0 | `124` | USER_EVENT_0 |
+| USER_EVENT_1 | `125` | USER_EVENT_1 |
+| USER_EVENT_2 | `126` | USER_EVENT_2 |
+| USER_EVENT_3 | `127` | USER_EVENT_3 |
+
+### MemEventAIE2
+
+_Memory module event enumeration for AIE2_
+
+#### Cases:
+
+| Symbol | Value | String |
+| :----: | :---: | ------ |
+| NONE | `0` | NONE |
+| TRUE | `1` | TRUE |
+| GROUP_0 | `2` | GROUP_0 |
+| TIMER_SYNC | `3` | TIMER_SYNC |
+| TIMER_VALUE_REACHED | `4` | TIMER_VALUE_REACHED |
+| PERF_CNT_0 | `5` | PERF_CNT_0 |
+| PERF_CNT_1 | `6` | PERF_CNT_1 |
+| COMBO_EVENT_0 | `7` | COMBO_EVENT_0 |
+| COMBO_EVENT_1 | `8` | COMBO_EVENT_1 |
+| COMBO_EVENT_2 | `9` | COMBO_EVENT_2 |
+| COMBO_EVENT_3 | `10` | COMBO_EVENT_3 |
+| EDGE_DETECTION_EVENT_0 | `11` | EDGE_DETECTION_EVENT_0 |
+| EDGE_DETECTION_EVENT_1 | `12` | EDGE_DETECTION_EVENT_1 |
+| GROUP_WATCHPOINT | `15` | GROUP_WATCHPOINT |
+| WATCHPOINT_0 | `16` | WATCHPOINT_0 |
+| WATCHPOINT_1 | `17` | WATCHPOINT_1 |
+| GROUP_DMA_ACTIVITY | `18` | GROUP_DMA_ACTIVITY |
+| DMA_S2MM_0_START_TASK | `19` | DMA_S2MM_0_START_TASK |
+| DMA_S2MM_1_START_TASK | `20` | DMA_S2MM_1_START_TASK |
+| DMA_MM2S_0_START_TASK | `21` | DMA_MM2S_0_START_TASK |
+| DMA_MM2S_1_START_TASK | `22` | DMA_MM2S_1_START_TASK |
+| DMA_S2MM_0_FINISHED_BD | `23` | DMA_S2MM_0_FINISHED_BD |
+| DMA_S2MM_1_FINISHED_BD | `24` | DMA_S2MM_1_FINISHED_BD |
+| DMA_MM2S_0_FINISHED_BD | `25` | DMA_MM2S_0_FINISHED_BD |
+| DMA_MM2S_1_FINISHED_BD | `26` | DMA_MM2S_1_FINISHED_BD |
+| DMA_S2MM_0_FINISHED_TASK | `27` | DMA_S2MM_0_FINISHED_TASK |
+| DMA_S2MM_1_FINISHED_TASK | `28` | DMA_S2MM_1_FINISHED_TASK |
+| DMA_MM2S_0_FINISHED_TASK | `29` | DMA_MM2S_0_FINISHED_TASK |
+| DMA_MM2S_1_FINISHED_TASK | `30` | DMA_MM2S_1_FINISHED_TASK |
+| DMA_S2MM_0_STALLED_LOCK | `31` | DMA_S2MM_0_STALLED_LOCK |
+| DMA_S2MM_1_STALLED_LOCK | `32` | DMA_S2MM_1_STALLED_LOCK |
+| DMA_MM2S_0_STALLED_LOCK | `33` | DMA_MM2S_0_STALLED_LOCK |
+| DMA_MM2S_1_STALLED_LOCK | `34` | DMA_MM2S_1_STALLED_LOCK |
+| DMA_S2MM_0_STREAM_STARVATION | `35` | DMA_S2MM_0_STREAM_STARVATION |
+| DMA_S2MM_1_STREAM_STARVATION | `36` | DMA_S2MM_1_STREAM_STARVATION |
+| DMA_MM2S_0_STREAM_BACKPRESSURE | `37` | DMA_MM2S_0_STREAM_BACKPRESSURE |
+| DMA_MM2S_1_STREAM_BACKPRESSURE | `38` | DMA_MM2S_1_STREAM_BACKPRESSURE |
+| DMA_S2MM_0_MEMORY_BACKPRESSURE | `39` | DMA_S2MM_0_MEMORY_BACKPRESSURE |
+| DMA_S2MM_1_MEMORY_BACKPRESSURE | `40` | DMA_S2MM_1_MEMORY_BACKPRESSURE |
+| DMA_MM2S_0_MEMORY_STARVATION | `41` | DMA_MM2S_0_MEMORY_STARVATION |
+| DMA_MM2S_1_MEMORY_STARVATION | `42` | DMA_MM2S_1_MEMORY_STARVATION |
+| GROUP_LOCK | `43` | GROUP_LOCK |
+| LOCK_SEL0_ACQ_EQ | `44` | LOCK_SEL0_ACQ_EQ |
+| LOCK_SEL0_ACQ_GE | `45` | LOCK_SEL0_ACQ_GE |
+| LOCK_0_REL | `46` | LOCK_0_REL |
+| LOCK_SEL0_EQUAL_TO_VALUE | `47` | LOCK_SEL0_EQUAL_TO_VALUE |
+| LOCK_SEL1_ACQ_EQ | `48` | LOCK_SEL1_ACQ_EQ |
+| LOCK_SEL1_ACQ_GE | `49` | LOCK_SEL1_ACQ_GE |
+| LOCK_1_REL | `50` | LOCK_1_REL |
+| LOCK_SEL1_EQUAL_TO_VALUE | `51` | LOCK_SEL1_EQUAL_TO_VALUE |
+| LOCK_SEL2_ACQ_EQ | `52` | LOCK_SEL2_ACQ_EQ |
+| LOCK_SEL2_ACQ_GE | `53` | LOCK_SEL2_ACQ_GE |
+| LOCK_2_REL | `54` | LOCK_2_REL |
+| LOCK_SEL2_EQUAL_TO_VALUE | `55` | LOCK_SEL2_EQUAL_TO_VALUE |
+| LOCK_SEL3_ACQ_EQ | `56` | LOCK_SEL3_ACQ_EQ |
+| LOCK_SEL3_ACQ_GE | `57` | LOCK_SEL3_ACQ_GE |
+| LOCK_3_REL | `58` | LOCK_3_REL |
+| LOCK_SEL3_EQUAL_TO_VALUE | `59` | LOCK_SEL3_EQUAL_TO_VALUE |
+| LOCK_SEL4_ACQ_EQ | `60` | LOCK_SEL4_ACQ_EQ |
+| LOCK_SEL4_ACQ_GE | `61` | LOCK_SEL4_ACQ_GE |
+| LOCK_4_REL | `62` | LOCK_4_REL |
+| LOCK_SEL4_EQUAL_TO_VALUE | `63` | LOCK_SEL4_EQUAL_TO_VALUE |
+| LOCK_SEL5_ACQ_EQ | `64` | LOCK_SEL5_ACQ_EQ |
+| LOCK_SEL5_ACQ_GE | `65` | LOCK_SEL5_ACQ_GE |
+| LOCK_5_REL | `66` | LOCK_5_REL |
+| LOCK_SEL5_EQUAL_TO_VALUE | `67` | LOCK_SEL5_EQUAL_TO_VALUE |
+| LOCK_SEL6_ACQ_EQ | `68` | LOCK_SEL6_ACQ_EQ |
+| LOCK_SEL6_ACQ_GE | `69` | LOCK_SEL6_ACQ_GE |
+| LOCK_6_REL | `70` | LOCK_6_REL |
+| LOCK_SEL6_EQUAL_TO_VALUE | `71` | LOCK_SEL6_EQUAL_TO_VALUE |
+| LOCK_SEL7_ACQ_EQ | `72` | LOCK_SEL7_ACQ_EQ |
+| LOCK_SEL7_ACQ_GE | `73` | LOCK_SEL7_ACQ_GE |
+| LOCK_7_REL | `74` | LOCK_7_REL |
+| LOCK_SEL7_EQUAL_TO_VALUE | `75` | LOCK_SEL7_EQUAL_TO_VALUE |
+| GROUP_MEMORY_CONFLICT | `76` | GROUP_MEMORY_CONFLICT |
+| CONFLICT_DM_BANK_0 | `77` | CONFLICT_DM_BANK_0 |
+| CONFLICT_DM_BANK_1 | `78` | CONFLICT_DM_BANK_1 |
+| CONFLICT_DM_BANK_2 | `79` | CONFLICT_DM_BANK_2 |
+| CONFLICT_DM_BANK_3 | `80` | CONFLICT_DM_BANK_3 |
+| CONFLICT_DM_BANK_4 | `81` | CONFLICT_DM_BANK_4 |
+| CONFLICT_DM_BANK_5 | `82` | CONFLICT_DM_BANK_5 |
+| CONFLICT_DM_BANK_6 | `83` | CONFLICT_DM_BANK_6 |
+| CONFLICT_DM_BANK_7 | `84` | CONFLICT_DM_BANK_7 |
+| GROUP_ERRORS | `86` | GROUP_ERRORS |
+| DM_ECC_ERROR_SCRUB_CORRECTED | `87` | DM_ECC_ERROR_SCRUB_CORRECTED |
+| DM_ECC_ERROR_SCRUB_2BIT | `88` | DM_ECC_ERROR_SCRUB_2BIT |
+| DM_ECC_ERROR_1BIT | `89` | DM_ECC_ERROR_1BIT |
+| DM_ECC_ERROR_2BIT | `90` | DM_ECC_ERROR_2BIT |
+| DM_PARITY_ERROR_BANK_2 | `91` | DM_PARITY_ERROR_BANK_2 |
+| DM_PARITY_ERROR_BANK_3 | `92` | DM_PARITY_ERROR_BANK_3 |
+| DM_PARITY_ERROR_BANK_4 | `93` | DM_PARITY_ERROR_BANK_4 |
+| DM_PARITY_ERROR_BANK_5 | `94` | DM_PARITY_ERROR_BANK_5 |
+| DM_PARITY_ERROR_BANK_6 | `95` | DM_PARITY_ERROR_BANK_6 |
+| DM_PARITY_ERROR_BANK_7 | `96` | DM_PARITY_ERROR_BANK_7 |
+| DMA_S2MM_0_ERROR | `97` | DMA_S2MM_0_ERROR |
+| DMA_S2MM_1_ERROR | `98` | DMA_S2MM_1_ERROR |
+| DMA_MM2S_0_ERROR | `99` | DMA_MM2S_0_ERROR |
+| DMA_MM2S_1_ERROR | `100` | DMA_MM2S_1_ERROR |
+| LOCK_ERROR | `101` | LOCK_ERROR |
+| DMA_TASK_TOKEN_STALL | `102` | DMA_TASK_TOKEN_STALL |
+| GROUP_BROADCAST | `106` | GROUP_BROADCAST |
+| BROADCAST_0 | `107` | BROADCAST_0 |
+| BROADCAST_1 | `108` | BROADCAST_1 |
+| BROADCAST_2 | `109` | BROADCAST_2 |
+| BROADCAST_3 | `110` | BROADCAST_3 |
+| BROADCAST_4 | `111` | BROADCAST_4 |
+| BROADCAST_5 | `112` | BROADCAST_5 |
+| BROADCAST_6 | `113` | BROADCAST_6 |
+| BROADCAST_7 | `114` | BROADCAST_7 |
+| BROADCAST_8 | `115` | BROADCAST_8 |
+| BROADCAST_9 | `116` | BROADCAST_9 |
+| BROADCAST_10 | `117` | BROADCAST_10 |
+| BROADCAST_11 | `118` | BROADCAST_11 |
+| BROADCAST_12 | `119` | BROADCAST_12 |
+| BROADCAST_13 | `120` | BROADCAST_13 |
+| BROADCAST_14 | `121` | BROADCAST_14 |
+| BROADCAST_15 | `122` | BROADCAST_15 |
+| GROUP_USER_EVENT | `123` | GROUP_USER_EVENT |
+| USER_EVENT_0 | `124` | USER_EVENT_0 |
+| USER_EVENT_1 | `125` | USER_EVENT_1 |
+| USER_EVENT_2 | `126` | USER_EVENT_2 |
+| USER_EVENT_3 | `127` | USER_EVENT_3 |
+
+### MemEventAIE2P
+
+_Memory module event enumeration for AIE2P_
+
+#### Cases:
+
+| Symbol | Value | String |
+| :----: | :---: | ------ |
+| NONE | `0` | NONE |
+| TRUE | `1` | TRUE |
+| GROUP_0 | `2` | GROUP_0 |
+| TIMER_SYNC | `3` | TIMER_SYNC |
+| TIMER_VALUE_REACHED | `4` | TIMER_VALUE_REACHED |
+| PERF_CNT_0 | `5` | PERF_CNT_0 |
+| PERF_CNT_1 | `6` | PERF_CNT_1 |
+| COMBO_EVENT_0 | `7` | COMBO_EVENT_0 |
+| COMBO_EVENT_1 | `8` | COMBO_EVENT_1 |
+| COMBO_EVENT_2 | `9` | COMBO_EVENT_2 |
+| COMBO_EVENT_3 | `10` | COMBO_EVENT_3 |
+| EDGE_DETECTION_EVENT_0 | `11` | EDGE_DETECTION_EVENT_0 |
+| EDGE_DETECTION_EVENT_1 | `12` | EDGE_DETECTION_EVENT_1 |
+| GROUP_WATCHPOINT | `15` | GROUP_WATCHPOINT |
+| WATCHPOINT_0 | `16` | WATCHPOINT_0 |
+| WATCHPOINT_1 | `17` | WATCHPOINT_1 |
+| GROUP_DMA_ACTIVITY | `18` | GROUP_DMA_ACTIVITY |
+| DMA_S2MM_0_START_TASK | `19` | DMA_S2MM_0_START_TASK |
+| DMA_S2MM_1_START_TASK | `20` | DMA_S2MM_1_START_TASK |
+| DMA_MM2S_0_START_TASK | `21` | DMA_MM2S_0_START_TASK |
+| DMA_MM2S_1_START_TASK | `22` | DMA_MM2S_1_START_TASK |
+| DMA_S2MM_0_FINISHED_BD | `23` | DMA_S2MM_0_FINISHED_BD |
+| DMA_S2MM_1_FINISHED_BD | `24` | DMA_S2MM_1_FINISHED_BD |
+| DMA_MM2S_0_FINISHED_BD | `25` | DMA_MM2S_0_FINISHED_BD |
+| DMA_MM2S_1_FINISHED_BD | `26` | DMA_MM2S_1_FINISHED_BD |
+| DMA_S2MM_0_FINISHED_TASK | `27` | DMA_S2MM_0_FINISHED_TASK |
+| DMA_S2MM_1_FINISHED_TASK | `28` | DMA_S2MM_1_FINISHED_TASK |
+| DMA_MM2S_0_FINISHED_TASK | `29` | DMA_MM2S_0_FINISHED_TASK |
+| DMA_MM2S_1_FINISHED_TASK | `30` | DMA_MM2S_1_FINISHED_TASK |
+| DMA_S2MM_0_STALLED_LOCK | `31` | DMA_S2MM_0_STALLED_LOCK |
+| DMA_S2MM_1_STALLED_LOCK | `32` | DMA_S2MM_1_STALLED_LOCK |
+| DMA_MM2S_0_STALLED_LOCK | `33` | DMA_MM2S_0_STALLED_LOCK |
+| DMA_MM2S_1_STALLED_LOCK | `34` | DMA_MM2S_1_STALLED_LOCK |
+| DMA_S2MM_0_STREAM_STARVATION | `35` | DMA_S2MM_0_STREAM_STARVATION |
+| DMA_S2MM_1_STREAM_STARVATION | `36` | DMA_S2MM_1_STREAM_STARVATION |
+| DMA_MM2S_0_STREAM_BACKPRESSURE | `37` | DMA_MM2S_0_STREAM_BACKPRESSURE |
+| DMA_MM2S_1_STREAM_BACKPRESSURE | `38` | DMA_MM2S_1_STREAM_BACKPRESSURE |
+| DMA_S2MM_0_MEMORY_BACKPRESSURE | `39` | DMA_S2MM_0_MEMORY_BACKPRESSURE |
+| DMA_S2MM_1_MEMORY_BACKPRESSURE | `40` | DMA_S2MM_1_MEMORY_BACKPRESSURE |
+| DMA_MM2S_0_MEMORY_STARVATION | `41` | DMA_MM2S_0_MEMORY_STARVATION |
+| DMA_MM2S_1_MEMORY_STARVATION | `42` | DMA_MM2S_1_MEMORY_STARVATION |
+| GROUP_LOCK | `43` | GROUP_LOCK |
+| LOCK_SEL0_ACQ_EQ | `44` | LOCK_SEL0_ACQ_EQ |
+| LOCK_SEL0_ACQ_GE | `45` | LOCK_SEL0_ACQ_GE |
+| LOCK_0_REL | `46` | LOCK_0_REL |
+| LOCK_SEL0_EQUAL_TO_VALUE | `47` | LOCK_SEL0_EQUAL_TO_VALUE |
+| LOCK_SEL1_ACQ_EQ | `48` | LOCK_SEL1_ACQ_EQ |
+| LOCK_SEL1_ACQ_GE | `49` | LOCK_SEL1_ACQ_GE |
+| LOCK_1_REL | `50` | LOCK_1_REL |
+| LOCK_SEL1_EQUAL_TO_VALUE | `51` | LOCK_SEL1_EQUAL_TO_VALUE |
+| LOCK_SEL2_ACQ_EQ | `52` | LOCK_SEL2_ACQ_EQ |
+| LOCK_SEL2_ACQ_GE | `53` | LOCK_SEL2_ACQ_GE |
+| LOCK_2_REL | `54` | LOCK_2_REL |
+| LOCK_SEL2_EQUAL_TO_VALUE | `55` | LOCK_SEL2_EQUAL_TO_VALUE |
+| LOCK_SEL3_ACQ_EQ | `56` | LOCK_SEL3_ACQ_EQ |
+| LOCK_SEL3_ACQ_GE | `57` | LOCK_SEL3_ACQ_GE |
+| LOCK_3_REL | `58` | LOCK_3_REL |
+| LOCK_SEL3_EQUAL_TO_VALUE | `59` | LOCK_SEL3_EQUAL_TO_VALUE |
+| LOCK_SEL4_ACQ_EQ | `60` | LOCK_SEL4_ACQ_EQ |
+| LOCK_SEL4_ACQ_GE | `61` | LOCK_SEL4_ACQ_GE |
+| LOCK_4_REL | `62` | LOCK_4_REL |
+| LOCK_SEL4_EQUAL_TO_VALUE | `63` | LOCK_SEL4_EQUAL_TO_VALUE |
+| LOCK_SEL5_ACQ_EQ | `64` | LOCK_SEL5_ACQ_EQ |
+| LOCK_SEL5_ACQ_GE | `65` | LOCK_SEL5_ACQ_GE |
+| LOCK_5_REL | `66` | LOCK_5_REL |
+| LOCK_SEL5_EQUAL_TO_VALUE | `67` | LOCK_SEL5_EQUAL_TO_VALUE |
+| LOCK_SEL6_ACQ_EQ | `68` | LOCK_SEL6_ACQ_EQ |
+| LOCK_SEL6_ACQ_GE | `69` | LOCK_SEL6_ACQ_GE |
+| LOCK_6_REL | `70` | LOCK_6_REL |
+| LOCK_SEL6_EQUAL_TO_VALUE | `71` | LOCK_SEL6_EQUAL_TO_VALUE |
+| LOCK_SEL7_ACQ_EQ | `72` | LOCK_SEL7_ACQ_EQ |
+| LOCK_SEL7_ACQ_GE | `73` | LOCK_SEL7_ACQ_GE |
+| LOCK_7_REL | `74` | LOCK_7_REL |
+| LOCK_SEL7_EQUAL_TO_VALUE | `75` | LOCK_SEL7_EQUAL_TO_VALUE |
+| GROUP_MEMORY_CONFLICT | `76` | GROUP_MEMORY_CONFLICT |
+| CONFLICT_DM_BANK_0 | `77` | CONFLICT_DM_BANK_0 |
+| CONFLICT_DM_BANK_1 | `78` | CONFLICT_DM_BANK_1 |
+| CONFLICT_DM_BANK_2 | `79` | CONFLICT_DM_BANK_2 |
+| CONFLICT_DM_BANK_3 | `80` | CONFLICT_DM_BANK_3 |
+| CONFLICT_DM_BANK_4 | `81` | CONFLICT_DM_BANK_4 |
+| CONFLICT_DM_BANK_5 | `82` | CONFLICT_DM_BANK_5 |
+| CONFLICT_DM_BANK_6 | `83` | CONFLICT_DM_BANK_6 |
+| CONFLICT_DM_BANK_7 | `84` | CONFLICT_DM_BANK_7 |
+| GROUP_ERRORS | `86` | GROUP_ERRORS |
+| DM_ECC_ERROR_SCRUB_CORRECTED | `87` | DM_ECC_ERROR_SCRUB_CORRECTED |
+| DM_ECC_ERROR_SCRUB_2BIT | `88` | DM_ECC_ERROR_SCRUB_2BIT |
+| DM_ECC_ERROR_1BIT | `89` | DM_ECC_ERROR_1BIT |
+| DM_ECC_ERROR_2BIT | `90` | DM_ECC_ERROR_2BIT |
+| DM_PARITY_ERROR_BANK_2 | `91` | DM_PARITY_ERROR_BANK_2 |
+| DM_PARITY_ERROR_BANK_3 | `92` | DM_PARITY_ERROR_BANK_3 |
+| DM_PARITY_ERROR_BANK_4 | `93` | DM_PARITY_ERROR_BANK_4 |
+| DM_PARITY_ERROR_BANK_5 | `94` | DM_PARITY_ERROR_BANK_5 |
+| DM_PARITY_ERROR_BANK_6 | `95` | DM_PARITY_ERROR_BANK_6 |
+| DM_PARITY_ERROR_BANK_7 | `96` | DM_PARITY_ERROR_BANK_7 |
+| DMA_S2MM_0_ERROR | `97` | DMA_S2MM_0_ERROR |
+| DMA_S2MM_1_ERROR | `98` | DMA_S2MM_1_ERROR |
+| DMA_MM2S_0_ERROR | `99` | DMA_MM2S_0_ERROR |
+| DMA_MM2S_1_ERROR | `100` | DMA_MM2S_1_ERROR |
+| LOCK_ERROR | `101` | LOCK_ERROR |
+| DMA_TASK_TOKEN_STALL | `102` | DMA_TASK_TOKEN_STALL |
+| GROUP_BROADCAST | `106` | GROUP_BROADCAST |
+| BROADCAST_0 | `107` | BROADCAST_0 |
+| BROADCAST_1 | `108` | BROADCAST_1 |
+| BROADCAST_2 | `109` | BROADCAST_2 |
+| BROADCAST_3 | `110` | BROADCAST_3 |
+| BROADCAST_4 | `111` | BROADCAST_4 |
+| BROADCAST_5 | `112` | BROADCAST_5 |
+| BROADCAST_6 | `113` | BROADCAST_6 |
+| BROADCAST_7 | `114` | BROADCAST_7 |
+| BROADCAST_8 | `115` | BROADCAST_8 |
+| BROADCAST_9 | `116` | BROADCAST_9 |
+| BROADCAST_10 | `117` | BROADCAST_10 |
+| BROADCAST_11 | `118` | BROADCAST_11 |
+| BROADCAST_12 | `119` | BROADCAST_12 |
+| BROADCAST_13 | `120` | BROADCAST_13 |
+| BROADCAST_14 | `121` | BROADCAST_14 |
+| BROADCAST_15 | `122` | BROADCAST_15 |
+| GROUP_USER_EVENT | `123` | GROUP_USER_EVENT |
+| USER_EVENT_0 | `124` | USER_EVENT_0 |
+| USER_EVENT_1 | `125` | USER_EVENT_1 |
+| USER_EVENT_2 | `126` | USER_EVENT_2 |
+| USER_EVENT_3 | `127` | USER_EVENT_3 |
+
+### MemTileEventAIE
+
+_Memory tile event enumeration for AIE_
+
+#### Cases:
+
+| Symbol | Value | String |
+| :----: | :---: | ------ |
+
+### MemTileEventAIE2
+
+_Memory tile event enumeration for AIE2_
+
+#### Cases:
+
+| Symbol | Value | String |
+| :----: | :---: | ------ |
+| NONE | `0` | NONE |
+| TRUE | `1` | TRUE |
+| GROUP_0 | `2` | GROUP_0 |
+| TIMER_SYNC | `3` | TIMER_SYNC |
+| TIMER_VALUE_REACHED | `4` | TIMER_VALUE_REACHED |
+| PERF_CNT0_EVENT | `5` | PERF_CNT0_EVENT |
+| PERF_CNT1_EVENT | `6` | PERF_CNT1_EVENT |
+| PERF_CNT2_EVENT | `7` | PERF_CNT2_EVENT |
+| PERF_CNT3_EVENT | `8` | PERF_CNT3_EVENT |
+| COMBO_EVENT_0 | `9` | COMBO_EVENT_0 |
+| COMBO_EVENT_1 | `10` | COMBO_EVENT_1 |
+| COMBO_EVENT_2 | `11` | COMBO_EVENT_2 |
+| COMBO_EVENT_3 | `12` | COMBO_EVENT_3 |
+| EDGE_DETECTION_EVENT_0 | `13` | EDGE_DETECTION_EVENT_0 |
+| EDGE_DETECTION_EVENT_1 | `14` | EDGE_DETECTION_EVENT_1 |
+| GROUP_WATCHPOINT | `15` | GROUP_WATCHPOINT |
+| WATCHPOINT_0 | `16` | WATCHPOINT_0 |
+| WATCHPOINT_1 | `17` | WATCHPOINT_1 |
+| WATCHPOINT_2 | `18` | WATCHPOINT_2 |
+| WATCHPOINT_3 | `19` | WATCHPOINT_3 |
+| GROUP_DMA_ACTIVITY | `20` | GROUP_DMA_ACTIVITY |
+| DMA_S2MM_SEL0_START_TASK | `21` | DMA_S2MM_SEL0_START_TASK |
+| DMA_S2MM_SEL1_START_TASK | `22` | DMA_S2MM_SEL1_START_TASK |
+| DMA_MM2S_SEL0_START_TASK | `23` | DMA_MM2S_SEL0_START_TASK |
+| DMA_MM2S_SEL1_START_TASK | `24` | DMA_MM2S_SEL1_START_TASK |
+| DMA_S2MM_SEL0_FINISHED_BD | `25` | DMA_S2MM_SEL0_FINISHED_BD |
+| DMA_S2MM_SEL1_FINISHED_BD | `26` | DMA_S2MM_SEL1_FINISHED_BD |
+| DMA_MM2S_SEL0_FINISHED_BD | `27` | DMA_MM2S_SEL0_FINISHED_BD |
+| DMA_MM2S_SEL1_FINISHED_BD | `28` | DMA_MM2S_SEL1_FINISHED_BD |
+| DMA_S2MM_SEL0_FINISHED_TASK | `29` | DMA_S2MM_SEL0_FINISHED_TASK |
+| DMA_S2MM_SEL1_FINISHED_TASK | `30` | DMA_S2MM_SEL1_FINISHED_TASK |
+| DMA_MM2S_SEL0_FINISHED_TASK | `31` | DMA_MM2S_SEL0_FINISHED_TASK |
+| DMA_MM2S_SEL1_FINISHED_TASK | `32` | DMA_MM2S_SEL1_FINISHED_TASK |
+| DMA_S2MM_SEL0_STALLED_LOCK | `33` | DMA_S2MM_SEL0_STALLED_LOCK |
+| DMA_S2MM_SEL1_STALLED_LOCK | `34` | DMA_S2MM_SEL1_STALLED_LOCK |
+| DMA_MM2S_SEL0_STALLED_LOCK | `35` | DMA_MM2S_SEL0_STALLED_LOCK |
+| DMA_MM2S_SEL1_STALLED_LOCK | `36` | DMA_MM2S_SEL1_STALLED_LOCK |
+| DMA_S2MM_SEL0_STREAM_STARVATION | `37` | DMA_S2MM_SEL0_STREAM_STARVATION |
+| DMA_S2MM_SEL1_STREAM_STARVATION | `38` | DMA_S2MM_SEL1_STREAM_STARVATION |
+| DMA_MM2S_SEL0_STREAM_BACKPRESSURE | `39` | DMA_MM2S_SEL0_STREAM_BACKPRESSURE |
+| DMA_MM2S_SEL1_STREAM_BACKPRESSURE | `40` | DMA_MM2S_SEL1_STREAM_BACKPRESSURE |
+| DMA_S2MM_SEL0_MEMORY_BACKPRESSURE | `41` | DMA_S2MM_SEL0_MEMORY_BACKPRESSURE |
+| DMA_S2MM_SEL1_MEMORY_BACKPRESSURE | `42` | DMA_S2MM_SEL1_MEMORY_BACKPRESSURE |
+| DMA_MM2S_SEL0_MEMORY_STARVATION | `43` | DMA_MM2S_SEL0_MEMORY_STARVATION |
+| DMA_MM2S_SEL1_MEMORY_STARVATION | `44` | DMA_MM2S_SEL1_MEMORY_STARVATION |
+| GROUP_LOCK | `45` | GROUP_LOCK |
+| LOCK_SEL0_ACQ_EQ | `46` | LOCK_SEL0_ACQ_EQ |
+| LOCK_SEL0_ACQ_GE | `47` | LOCK_SEL0_ACQ_GE |
+| LOCK_SEL0_REL | `48` | LOCK_SEL0_REL |
+| LOCK_SEL0_EQUAL_TO_VALUE | `49` | LOCK_SEL0_EQUAL_TO_VALUE |
+| LOCK_SEL1_ACQ_EQ | `50` | LOCK_SEL1_ACQ_EQ |
+| LOCK_SEL1_ACQ_GE | `51` | LOCK_SEL1_ACQ_GE |
+| LOCK_SEL1_REL | `52` | LOCK_SEL1_REL |
+| LOCK_SEL1_EQUAL_TO_VALUE | `53` | LOCK_SEL1_EQUAL_TO_VALUE |
+| LOCK_SEL2_ACQ_EQ | `54` | LOCK_SEL2_ACQ_EQ |
+| LOCK_SEL2_ACQ_GE | `55` | LOCK_SEL2_ACQ_GE |
+| LOCK_SEL2_REL | `56` | LOCK_SEL2_REL |
+| LOCK_SEL2_EQUAL_TO_VALUE | `57` | LOCK_SEL2_EQUAL_TO_VALUE |
+| LOCK_SEL3_ACQ_EQ | `58` | LOCK_SEL3_ACQ_EQ |
+| LOCK_SEL3_ACQ_GE | `59` | LOCK_SEL3_ACQ_GE |
+| LOCK_SEL3_REL | `60` | LOCK_SEL3_REL |
+| LOCK_SEL3_EQUAL_TO_VALUE | `61` | LOCK_SEL3_EQUAL_TO_VALUE |
+| LOCK_SEL4_ACQ_EQ | `62` | LOCK_SEL4_ACQ_EQ |
+| LOCK_SEL4_ACQ_GE | `63` | LOCK_SEL4_ACQ_GE |
+| LOCK_SEL4_REL | `64` | LOCK_SEL4_REL |
+| LOCK_SEL4_EQUAL_TO_VALUE | `65` | LOCK_SEL4_EQUAL_TO_VALUE |
+| LOCK_SEL5_ACQ_EQ | `66` | LOCK_SEL5_ACQ_EQ |
+| LOCK_SEL5_ACQ_GE | `67` | LOCK_SEL5_ACQ_GE |
+| LOCK_SEL5_REL | `68` | LOCK_SEL5_REL |
+| LOCK_SEL5_EQUAL_TO_VALUE | `69` | LOCK_SEL5_EQUAL_TO_VALUE |
+| LOCK_SEL6_ACQ_EQ | `70` | LOCK_SEL6_ACQ_EQ |
+| LOCK_SEL6_ACQ_GE | `71` | LOCK_SEL6_ACQ_GE |
+| LOCK_SEL6_REL | `72` | LOCK_SEL6_REL |
+| LOCK_SEL6_EQUAL_TO_VALUE | `73` | LOCK_SEL6_EQUAL_TO_VALUE |
+| LOCK_SEL7_ACQ_EQ | `74` | LOCK_SEL7_ACQ_EQ |
+| LOCK_SEL7_ACQ_GE | `75` | LOCK_SEL7_ACQ_GE |
+| LOCK_SEL7_REL | `76` | LOCK_SEL7_REL |
+| LOCK_SEL7_EQUAL_TO_VALUE | `77` | LOCK_SEL7_EQUAL_TO_VALUE |
+| GROUP_STREAM_SWITCH | `78` | GROUP_STREAM_SWITCH |
+| PORT_IDLE_0 | `79` | PORT_IDLE_0 |
+| PORT_RUNNING_0 | `80` | PORT_RUNNING_0 |
+| PORT_STALLED_0 | `81` | PORT_STALLED_0 |
+| PORT_TLAST_0 | `82` | PORT_TLAST_0 |
+| PORT_IDLE_1 | `83` | PORT_IDLE_1 |
+| PORT_RUNNING_1 | `84` | PORT_RUNNING_1 |
+| PORT_STALLED_1 | `85` | PORT_STALLED_1 |
+| PORT_TLAST_1 | `86` | PORT_TLAST_1 |
+| PORT_IDLE_2 | `87` | PORT_IDLE_2 |
+| PORT_RUNNING_2 | `88` | PORT_RUNNING_2 |
+| PORT_STALLED_2 | `89` | PORT_STALLED_2 |
+| PORT_TLAST_2 | `90` | PORT_TLAST_2 |
+| PORT_IDLE_3 | `91` | PORT_IDLE_3 |
+| PORT_RUNNING_3 | `92` | PORT_RUNNING_3 |
+| PORT_STALLED_3 | `93` | PORT_STALLED_3 |
+| PORT_TLAST_3 | `94` | PORT_TLAST_3 |
+| PORT_IDLE_4 | `95` | PORT_IDLE_4 |
+| PORT_RUNNING_4 | `96` | PORT_RUNNING_4 |
+| PORT_STALLED_4 | `97` | PORT_STALLED_4 |
+| PORT_TLAST_4 | `98` | PORT_TLAST_4 |
+| PORT_IDLE_5 | `99` | PORT_IDLE_5 |
+| PORT_RUNNING_5 | `100` | PORT_RUNNING_5 |
+| PORT_STALLED_5 | `101` | PORT_STALLED_5 |
+| PORT_TLAST_5 | `102` | PORT_TLAST_5 |
+| PORT_IDLE_6 | `103` | PORT_IDLE_6 |
+| PORT_RUNNING_6 | `104` | PORT_RUNNING_6 |
+| PORT_STALLED_6 | `105` | PORT_STALLED_6 |
+| PORT_TLAST_6 | `106` | PORT_TLAST_6 |
+| PORT_IDLE_7 | `107` | PORT_IDLE_7 |
+| PORT_RUNNING_7 | `108` | PORT_RUNNING_7 |
+| PORT_STALLED_7 | `109` | PORT_STALLED_7 |
+| PORT_TLAST_7 | `110` | PORT_TLAST_7 |
+| GROUP_MEMORY_CONFLICT | `111` | GROUP_MEMORY_CONFLICT |
+| CONFLICT_DM_BANK_0 | `112` | CONFLICT_DM_BANK_0 |
+| CONFLICT_DM_BANK_1 | `113` | CONFLICT_DM_BANK_1 |
+| CONFLICT_DM_BANK_2 | `114` | CONFLICT_DM_BANK_2 |
+| CONFLICT_DM_BANK_3 | `115` | CONFLICT_DM_BANK_3 |
+| CONFLICT_DM_BANK_4 | `116` | CONFLICT_DM_BANK_4 |
+| CONFLICT_DM_BANK_5 | `117` | CONFLICT_DM_BANK_5 |
+| CONFLICT_DM_BANK_6 | `118` | CONFLICT_DM_BANK_6 |
+| CONFLICT_DM_BANK_7 | `119` | CONFLICT_DM_BANK_7 |
+| CONFLICT_DM_BANK_8 | `120` | CONFLICT_DM_BANK_8 |
+| CONFLICT_DM_BANK_9 | `121` | CONFLICT_DM_BANK_9 |
+| CONFLICT_DM_BANK_10 | `122` | CONFLICT_DM_BANK_10 |
+| CONFLICT_DM_BANK_11 | `123` | CONFLICT_DM_BANK_11 |
+| CONFLICT_DM_BANK_12 | `124` | CONFLICT_DM_BANK_12 |
+| CONFLICT_DM_BANK_13 | `125` | CONFLICT_DM_BANK_13 |
+| CONFLICT_DM_BANK_14 | `126` | CONFLICT_DM_BANK_14 |
+| CONFLICT_DM_BANK_15 | `127` | CONFLICT_DM_BANK_15 |
+| GROUP_ERRORS | `128` | GROUP_ERRORS |
+| DM_ECC_ERROR_SCRUB_CORRECTED | `129` | DM_ECC_ERROR_SCRUB_CORRECTED |
+| DM_ECC_ERROR_SCRUB_2BIT | `130` | DM_ECC_ERROR_SCRUB_2BIT |
+| DM_ECC_ERROR_1BIT | `131` | DM_ECC_ERROR_1BIT |
+| DM_ECC_ERROR_2BIT | `132` | DM_ECC_ERROR_2BIT |
+| DMA_S2MM_ERROR | `133` | DMA_S2MM_ERROR |
+| DMA_MM2S_ERROR | `134` | DMA_MM2S_ERROR |
+| STREAM_SWITCH_PARITY_ERROR | `135` | STREAM_SWITCH_PARITY_ERROR |
+| STREAM_PKT_ERROR | `136` | STREAM_PKT_ERROR |
+| CONTROL_PKT_ERROR | `137` | CONTROL_PKT_ERROR |
+| AXI_MM_SLAVE_ERROR | `138` | AXI_MM_SLAVE_ERROR |
+| LOCK_ERROR | `139` | LOCK_ERROR |
+| DMA_TASK_TOKEN_STALL | `140` | DMA_TASK_TOKEN_STALL |
+| GROUP_BROADCAST | `141` | GROUP_BROADCAST |
+| BROADCAST_0 | `142` | BROADCAST_0 |
+| BROADCAST_1 | `143` | BROADCAST_1 |
+| BROADCAST_2 | `144` | BROADCAST_2 |
+| BROADCAST_3 | `145` | BROADCAST_3 |
+| BROADCAST_4 | `146` | BROADCAST_4 |
+| BROADCAST_5 | `147` | BROADCAST_5 |
+| BROADCAST_6 | `148` | BROADCAST_6 |
+| BROADCAST_7 | `149` | BROADCAST_7 |
+| BROADCAST_8 | `150` | BROADCAST_8 |
+| BROADCAST_9 | `151` | BROADCAST_9 |
+| BROADCAST_10 | `152` | BROADCAST_10 |
+| BROADCAST_11 | `153` | BROADCAST_11 |
+| BROADCAST_12 | `154` | BROADCAST_12 |
+| BROADCAST_13 | `155` | BROADCAST_13 |
+| BROADCAST_14 | `156` | BROADCAST_14 |
+| BROADCAST_15 | `157` | BROADCAST_15 |
+| GROUP_USER_EVENT | `158` | GROUP_USER_EVENT |
+| USER_EVENT_0 | `159` | USER_EVENT_0 |
+| USER_EVENT_1 | `160` | USER_EVENT_1 |
+
+### MemTileEventAIE2P
+
+_Memory tile event enumeration for AIE2P_
+
+#### Cases:
+
+| Symbol | Value | String |
+| :----: | :---: | ------ |
+| NONE | `0` | NONE |
+| TRUE | `1` | TRUE |
+| GROUP_0 | `2` | GROUP_0 |
+| TIMER_SYNC | `3` | TIMER_SYNC |
+| TIMER_VALUE_REACHED | `4` | TIMER_VALUE_REACHED |
+| PERF_CNT0_EVENT | `5` | PERF_CNT0_EVENT |
+| PERF_CNT1_EVENT | `6` | PERF_CNT1_EVENT |
+| PERF_CNT2_EVENT | `7` | PERF_CNT2_EVENT |
+| PERF_CNT3_EVENT | `8` | PERF_CNT3_EVENT |
+| COMBO_EVENT_0 | `9` | COMBO_EVENT_0 |
+| COMBO_EVENT_1 | `10` | COMBO_EVENT_1 |
+| COMBO_EVENT_2 | `11` | COMBO_EVENT_2 |
+| COMBO_EVENT_3 | `12` | COMBO_EVENT_3 |
+| EDGE_DETECTION_EVENT_0 | `13` | EDGE_DETECTION_EVENT_0 |
+| EDGE_DETECTION_EVENT_1 | `14` | EDGE_DETECTION_EVENT_1 |
+| GROUP_WATCHPOINT | `15` | GROUP_WATCHPOINT |
+| WATCHPOINT_0 | `16` | WATCHPOINT_0 |
+| WATCHPOINT_1 | `17` | WATCHPOINT_1 |
+| WATCHPOINT_2 | `18` | WATCHPOINT_2 |
+| WATCHPOINT_3 | `19` | WATCHPOINT_3 |
+| GROUP_DMA_ACTIVITY | `20` | GROUP_DMA_ACTIVITY |
+| DMA_S2MM_SEL0_START_TASK | `21` | DMA_S2MM_SEL0_START_TASK |
+| DMA_S2MM_SEL1_START_TASK | `22` | DMA_S2MM_SEL1_START_TASK |
+| DMA_MM2S_SEL0_START_TASK | `23` | DMA_MM2S_SEL0_START_TASK |
+| DMA_MM2S_SEL1_START_TASK | `24` | DMA_MM2S_SEL1_START_TASK |
+| DMA_S2MM_SEL0_FINISHED_BD | `25` | DMA_S2MM_SEL0_FINISHED_BD |
+| DMA_S2MM_SEL1_FINISHED_BD | `26` | DMA_S2MM_SEL1_FINISHED_BD |
+| DMA_MM2S_SEL0_FINISHED_BD | `27` | DMA_MM2S_SEL0_FINISHED_BD |
+| DMA_MM2S_SEL1_FINISHED_BD | `28` | DMA_MM2S_SEL1_FINISHED_BD |
+| DMA_S2MM_SEL0_FINISHED_TASK | `29` | DMA_S2MM_SEL0_FINISHED_TASK |
+| DMA_S2MM_SEL1_FINISHED_TASK | `30` | DMA_S2MM_SEL1_FINISHED_TASK |
+| DMA_MM2S_SEL0_FINISHED_TASK | `31` | DMA_MM2S_SEL0_FINISHED_TASK |
+| DMA_MM2S_SEL1_FINISHED_TASK | `32` | DMA_MM2S_SEL1_FINISHED_TASK |
+| DMA_S2MM_SEL0_STALLED_LOCK | `33` | DMA_S2MM_SEL0_STALLED_LOCK |
+| DMA_S2MM_SEL1_STALLED_LOCK | `34` | DMA_S2MM_SEL1_STALLED_LOCK |
+| DMA_MM2S_SEL0_STALLED_LOCK | `35` | DMA_MM2S_SEL0_STALLED_LOCK |
+| DMA_MM2S_SEL1_STALLED_LOCK | `36` | DMA_MM2S_SEL1_STALLED_LOCK |
+| DMA_S2MM_SEL0_STREAM_STARVATION | `37` | DMA_S2MM_SEL0_STREAM_STARVATION |
+| DMA_S2MM_SEL1_STREAM_STARVATION | `38` | DMA_S2MM_SEL1_STREAM_STARVATION |
+| DMA_MM2S_SEL0_STREAM_BACKPRESSURE | `39` | DMA_MM2S_SEL0_STREAM_BACKPRESSURE |
+| DMA_MM2S_SEL1_STREAM_BACKPRESSURE | `40` | DMA_MM2S_SEL1_STREAM_BACKPRESSURE |
+| DMA_S2MM_SEL0_MEMORY_BACKPRESSURE | `41` | DMA_S2MM_SEL0_MEMORY_BACKPRESSURE |
+| DMA_S2MM_SEL1_MEMORY_BACKPRESSURE | `42` | DMA_S2MM_SEL1_MEMORY_BACKPRESSURE |
+| DMA_MM2S_SEL0_MEMORY_STARVATION | `43` | DMA_MM2S_SEL0_MEMORY_STARVATION |
+| DMA_MM2S_SEL1_MEMORY_STARVATION | `44` | DMA_MM2S_SEL1_MEMORY_STARVATION |
+| GROUP_LOCK | `45` | GROUP_LOCK |
+| LOCK_SEL0_ACQ_EQ | `46` | LOCK_SEL0_ACQ_EQ |
+| LOCK_SEL0_ACQ_GE | `47` | LOCK_SEL0_ACQ_GE |
+| LOCK_SEL0_REL | `48` | LOCK_SEL0_REL |
+| LOCK_SEL0_EQUAL_TO_VALUE | `49` | LOCK_SEL0_EQUAL_TO_VALUE |
+| LOCK_SEL1_ACQ_EQ | `50` | LOCK_SEL1_ACQ_EQ |
+| LOCK_SEL1_ACQ_GE | `51` | LOCK_SEL1_ACQ_GE |
+| LOCK_SEL1_REL | `52` | LOCK_SEL1_REL |
+| LOCK_SEL1_EQUAL_TO_VALUE | `53` | LOCK_SEL1_EQUAL_TO_VALUE |
+| LOCK_SEL2_ACQ_EQ | `54` | LOCK_SEL2_ACQ_EQ |
+| LOCK_SEL2_ACQ_GE | `55` | LOCK_SEL2_ACQ_GE |
+| LOCK_SEL2_REL | `56` | LOCK_SEL2_REL |
+| LOCK_SEL2_EQUAL_TO_VALUE | `57` | LOCK_SEL2_EQUAL_TO_VALUE |
+| LOCK_SEL3_ACQ_EQ | `58` | LOCK_SEL3_ACQ_EQ |
+| LOCK_SEL3_ACQ_GE | `59` | LOCK_SEL3_ACQ_GE |
+| LOCK_SEL3_REL | `60` | LOCK_SEL3_REL |
+| LOCK_SEL3_EQUAL_TO_VALUE | `61` | LOCK_SEL3_EQUAL_TO_VALUE |
+| LOCK_SEL4_ACQ_EQ | `62` | LOCK_SEL4_ACQ_EQ |
+| LOCK_SEL4_ACQ_GE | `63` | LOCK_SEL4_ACQ_GE |
+| LOCK_SEL4_REL | `64` | LOCK_SEL4_REL |
+| LOCK_SEL4_EQUAL_TO_VALUE | `65` | LOCK_SEL4_EQUAL_TO_VALUE |
+| LOCK_SEL5_ACQ_EQ | `66` | LOCK_SEL5_ACQ_EQ |
+| LOCK_SEL5_ACQ_GE | `67` | LOCK_SEL5_ACQ_GE |
+| LOCK_SEL5_REL | `68` | LOCK_SEL5_REL |
+| LOCK_SEL5_EQUAL_TO_VALUE | `69` | LOCK_SEL5_EQUAL_TO_VALUE |
+| LOCK_SEL6_ACQ_EQ | `70` | LOCK_SEL6_ACQ_EQ |
+| LOCK_SEL6_ACQ_GE | `71` | LOCK_SEL6_ACQ_GE |
+| LOCK_SEL6_REL | `72` | LOCK_SEL6_REL |
+| LOCK_SEL6_EQUAL_TO_VALUE | `73` | LOCK_SEL6_EQUAL_TO_VALUE |
+| LOCK_SEL7_ACQ_EQ | `74` | LOCK_SEL7_ACQ_EQ |
+| LOCK_SEL7_ACQ_GE | `75` | LOCK_SEL7_ACQ_GE |
+| LOCK_SEL7_REL | `76` | LOCK_SEL7_REL |
+| LOCK_SEL7_EQUAL_TO_VALUE | `77` | LOCK_SEL7_EQUAL_TO_VALUE |
+| GROUP_STREAM_SWITCH | `78` | GROUP_STREAM_SWITCH |
+| PORT_IDLE_0 | `79` | PORT_IDLE_0 |
+| PORT_RUNNING_0 | `80` | PORT_RUNNING_0 |
+| PORT_STALLED_0 | `81` | PORT_STALLED_0 |
+| PORT_TLAST_0 | `82` | PORT_TLAST_0 |
+| PORT_IDLE_1 | `83` | PORT_IDLE_1 |
+| PORT_RUNNING_1 | `84` | PORT_RUNNING_1 |
+| PORT_STALLED_1 | `85` | PORT_STALLED_1 |
+| PORT_TLAST_1 | `86` | PORT_TLAST_1 |
+| PORT_IDLE_2 | `87` | PORT_IDLE_2 |
+| PORT_RUNNING_2 | `88` | PORT_RUNNING_2 |
+| PORT_STALLED_2 | `89` | PORT_STALLED_2 |
+| PORT_TLAST_2 | `90` | PORT_TLAST_2 |
+| PORT_IDLE_3 | `91` | PORT_IDLE_3 |
+| PORT_RUNNING_3 | `92` | PORT_RUNNING_3 |
+| PORT_STALLED_3 | `93` | PORT_STALLED_3 |
+| PORT_TLAST_3 | `94` | PORT_TLAST_3 |
+| PORT_IDLE_4 | `95` | PORT_IDLE_4 |
+| PORT_RUNNING_4 | `96` | PORT_RUNNING_4 |
+| PORT_STALLED_4 | `97` | PORT_STALLED_4 |
+| PORT_TLAST_4 | `98` | PORT_TLAST_4 |
+| PORT_IDLE_5 | `99` | PORT_IDLE_5 |
+| PORT_RUNNING_5 | `100` | PORT_RUNNING_5 |
+| PORT_STALLED_5 | `101` | PORT_STALLED_5 |
+| PORT_TLAST_5 | `102` | PORT_TLAST_5 |
+| PORT_IDLE_6 | `103` | PORT_IDLE_6 |
+| PORT_RUNNING_6 | `104` | PORT_RUNNING_6 |
+| PORT_STALLED_6 | `105` | PORT_STALLED_6 |
+| PORT_TLAST_6 | `106` | PORT_TLAST_6 |
+| PORT_IDLE_7 | `107` | PORT_IDLE_7 |
+| PORT_RUNNING_7 | `108` | PORT_RUNNING_7 |
+| PORT_STALLED_7 | `109` | PORT_STALLED_7 |
+| PORT_TLAST_7 | `110` | PORT_TLAST_7 |
+| GROUP_MEMORY_CONFLICT | `111` | GROUP_MEMORY_CONFLICT |
+| CONFLICT_DM_BANK_0 | `112` | CONFLICT_DM_BANK_0 |
+| CONFLICT_DM_BANK_1 | `113` | CONFLICT_DM_BANK_1 |
+| CONFLICT_DM_BANK_2 | `114` | CONFLICT_DM_BANK_2 |
+| CONFLICT_DM_BANK_3 | `115` | CONFLICT_DM_BANK_3 |
+| CONFLICT_DM_BANK_4 | `116` | CONFLICT_DM_BANK_4 |
+| CONFLICT_DM_BANK_5 | `117` | CONFLICT_DM_BANK_5 |
+| CONFLICT_DM_BANK_6 | `118` | CONFLICT_DM_BANK_6 |
+| CONFLICT_DM_BANK_7 | `119` | CONFLICT_DM_BANK_7 |
+| CONFLICT_DM_BANK_8 | `120` | CONFLICT_DM_BANK_8 |
+| CONFLICT_DM_BANK_9 | `121` | CONFLICT_DM_BANK_9 |
+| CONFLICT_DM_BANK_10 | `122` | CONFLICT_DM_BANK_10 |
+| CONFLICT_DM_BANK_11 | `123` | CONFLICT_DM_BANK_11 |
+| CONFLICT_DM_BANK_12 | `124` | CONFLICT_DM_BANK_12 |
+| CONFLICT_DM_BANK_13 | `125` | CONFLICT_DM_BANK_13 |
+| CONFLICT_DM_BANK_14 | `126` | CONFLICT_DM_BANK_14 |
+| CONFLICT_DM_BANK_15 | `127` | CONFLICT_DM_BANK_15 |
+| GROUP_ERRORS | `128` | GROUP_ERRORS |
+| DM_ECC_ERROR_SCRUB_CORRECTED | `129` | DM_ECC_ERROR_SCRUB_CORRECTED |
+| DM_ECC_ERROR_SCRUB_2BIT | `130` | DM_ECC_ERROR_SCRUB_2BIT |
+| DM_ECC_ERROR_1BIT | `131` | DM_ECC_ERROR_1BIT |
+| DM_ECC_ERROR_2BIT | `132` | DM_ECC_ERROR_2BIT |
+| DMA_S2MM_ERROR | `133` | DMA_S2MM_ERROR |
+| DMA_MM2S_ERROR | `134` | DMA_MM2S_ERROR |
+| STREAM_SWITCH_PARITY_ERROR | `135` | STREAM_SWITCH_PARITY_ERROR |
+| STREAM_PKT_ERROR | `136` | STREAM_PKT_ERROR |
+| CONTROL_PKT_ERROR | `137` | CONTROL_PKT_ERROR |
+| AXI_MM_SLAVE_ERROR | `138` | AXI_MM_SLAVE_ERROR |
+| LOCK_ERROR | `139` | LOCK_ERROR |
+| DMA_TASK_TOKEN_STALL | `140` | DMA_TASK_TOKEN_STALL |
+| GROUP_BROADCAST | `141` | GROUP_BROADCAST |
+| BROADCAST_0 | `142` | BROADCAST_0 |
+| BROADCAST_1 | `143` | BROADCAST_1 |
+| BROADCAST_2 | `144` | BROADCAST_2 |
+| BROADCAST_3 | `145` | BROADCAST_3 |
+| BROADCAST_4 | `146` | BROADCAST_4 |
+| BROADCAST_5 | `147` | BROADCAST_5 |
+| BROADCAST_6 | `148` | BROADCAST_6 |
+| BROADCAST_7 | `149` | BROADCAST_7 |
+| BROADCAST_8 | `150` | BROADCAST_8 |
+| BROADCAST_9 | `151` | BROADCAST_9 |
+| BROADCAST_10 | `152` | BROADCAST_10 |
+| BROADCAST_11 | `153` | BROADCAST_11 |
+| BROADCAST_12 | `154` | BROADCAST_12 |
+| BROADCAST_13 | `155` | BROADCAST_13 |
+| BROADCAST_14 | `156` | BROADCAST_14 |
+| BROADCAST_15 | `157` | BROADCAST_15 |
+| GROUP_USER_EVENT | `158` | GROUP_USER_EVENT |
+| USER_EVENT_0 | `159` | USER_EVENT_0 |
+| USER_EVENT_1 | `160` | USER_EVENT_1 |
+
 ### ObjectFifoPort
 
 _Ports of an object FIFO_
@@ -2303,6 +4271,452 @@ _Ports of an object FIFO_
 | :----: | :---: | ------ |
 | Produce | `0` | Produce |
 | Consume | `1` | Consume |
+
+### ShimTileEventAIE
+
+_Shim tile event enumeration for AIE_
+
+#### Cases:
+
+| Symbol | Value | String |
+| :----: | :---: | ------ |
+| NONE | `0` | NONE |
+| TRUE | `1` | TRUE |
+| GROUP_0 | `2` | GROUP_0 |
+| TIMER_SYNC | `3` | TIMER_SYNC |
+| TIMER_VALUE_REACHED | `4` | TIMER_VALUE_REACHED |
+| PERF_CNT_0 | `5` | PERF_CNT_0 |
+| PERF_CNT_1 | `6` | PERF_CNT_1 |
+| COMBO_EVENT_0 | `7` | COMBO_EVENT_0 |
+| COMBO_EVENT_1 | `8` | COMBO_EVENT_1 |
+| COMBO_EVENT_2 | `9` | COMBO_EVENT_2 |
+| COMBO_EVENT_3 | `10` | COMBO_EVENT_3 |
+| GROUP_DMA_ACTIVITY | `11` | GROUP_DMA_ACTIVITY |
+| DMA_S2MM_0_START_BD | `12` | DMA_S2MM_0_START_BD |
+| DMA_S2MM_1_START_BD | `13` | DMA_S2MM_1_START_BD |
+| DMA_MM2S_0_START_BD | `14` | DMA_MM2S_0_START_BD |
+| DMA_MM2S_1_START_BD | `15` | DMA_MM2S_1_START_BD |
+| DMA_S2MM_0_FINISHED_BD | `16` | DMA_S2MM_0_FINISHED_BD |
+| DMA_S2MM_1_FINISHED_BD | `17` | DMA_S2MM_1_FINISHED_BD |
+| DMA_MM2S_0_FINISHED_BD | `18` | DMA_MM2S_0_FINISHED_BD |
+| DMA_MM2S_1_FINISHED_BD | `19` | DMA_MM2S_1_FINISHED_BD |
+| DMA_S2MM_0_GO_TO_IDLE | `20` | DMA_S2MM_0_GO_TO_IDLE |
+| DMA_S2MM_1_GO_TO_IDLE | `21` | DMA_S2MM_1_GO_TO_IDLE |
+| DMA_MM2S_0_GO_TO_IDLE | `22` | DMA_MM2S_0_GO_TO_IDLE |
+| DMA_MM2S_1_GO_TO_IDLE | `23` | DMA_MM2S_1_GO_TO_IDLE |
+| DMA_S2MM_0_STALLED_LOCK_ACQUIRE | `24` | DMA_S2MM_0_STALLED_LOCK_ACQUIRE |
+| DMA_S2MM_1_STALLED_LOCK_ACQUIRE | `25` | DMA_S2MM_1_STALLED_LOCK_ACQUIRE |
+| DMA_MM2S_0_STALLED_LOCK_ACQUIRE | `26` | DMA_MM2S_0_STALLED_LOCK_ACQUIRE |
+| DMA_MM2S_1_STALLED_LOCK_ACQUIRE | `27` | DMA_MM2S_1_STALLED_LOCK_ACQUIRE |
+| GROUP_LOCK | `28` | GROUP_LOCK |
+| LOCK_0_ACQUIRED | `29` | LOCK_0_ACQUIRED |
+| LOCK_0_RELEASED | `30` | LOCK_0_RELEASED |
+| LOCK_1_ACQUIRED | `31` | LOCK_1_ACQUIRED |
+| LOCK_1_RELEASED | `32` | LOCK_1_RELEASED |
+| LOCK_2_ACQUIRED | `33` | LOCK_2_ACQUIRED |
+| LOCK_2_RELEASED | `34` | LOCK_2_RELEASED |
+| LOCK_3_ACQUIRED | `35` | LOCK_3_ACQUIRED |
+| LOCK_3_RELEASED | `36` | LOCK_3_RELEASED |
+| LOCK_4_ACQUIRED | `37` | LOCK_4_ACQUIRED |
+| LOCK_4_RELEASED | `38` | LOCK_4_RELEASED |
+| LOCK_5_ACQUIRED | `39` | LOCK_5_ACQUIRED |
+| LOCK_5_RELEASED | `40` | LOCK_5_RELEASED |
+| LOCK_6_ACQUIRED | `41` | LOCK_6_ACQUIRED |
+| LOCK_6_RELEASED | `42` | LOCK_6_RELEASED |
+| LOCK_7_ACQUIRED | `43` | LOCK_7_ACQUIRED |
+| LOCK_7_RELEASED | `44` | LOCK_7_RELEASED |
+| LOCK_8_ACQUIRED | `45` | LOCK_8_ACQUIRED |
+| LOCK_8_RELEASED | `46` | LOCK_8_RELEASED |
+| LOCK_9_ACQUIRED | `47` | LOCK_9_ACQUIRED |
+| LOCK_9_RELEASED | `48` | LOCK_9_RELEASED |
+| LOCK_10_ACQUIRED | `49` | LOCK_10_ACQUIRED |
+| LOCK_10_RELEASED | `50` | LOCK_10_RELEASED |
+| LOCK_11_ACQUIRED | `51` | LOCK_11_ACQUIRED |
+| LOCK_11_RELEASED | `52` | LOCK_11_RELEASED |
+| LOCK_12_ACQUIRED | `53` | LOCK_12_ACQUIRED |
+| LOCK_12_RELEASED | `54` | LOCK_12_RELEASED |
+| LOCK_13_ACQUIRED | `55` | LOCK_13_ACQUIRED |
+| LOCK_13_RELEASED | `56` | LOCK_13_RELEASED |
+| LOCK_14_ACQUIRED | `57` | LOCK_14_ACQUIRED |
+| LOCK_14_RELEASED | `58` | LOCK_14_RELEASED |
+| LOCK_15_ACQUIRED | `59` | LOCK_15_ACQUIRED |
+| LOCK_15_RELEASED | `60` | LOCK_15_RELEASED |
+| GROUP_ERRORS | `61` | GROUP_ERRORS |
+| AXI_MM_SLAVE_TILE_ERROR | `62` | AXI_MM_SLAVE_TILE_ERROR |
+| CONTROL_PKT_ERROR | `63` | CONTROL_PKT_ERROR |
+| AXI_MM_DECODE_NSU_ERROR | `64` | AXI_MM_DECODE_NSU_ERROR |
+| AXI_MM_SLAVE_NSU_ERROR | `65` | AXI_MM_SLAVE_NSU_ERROR |
+| AXI_MM_UNSUPPORTED_TRAFFIC | `66` | AXI_MM_UNSUPPORTED_TRAFFIC |
+| AXI_MM_UNSECURE_ACCESS_IN_SECURE_MODE | `67` | AXI_MM_UNSECURE_ACCESS_IN_SECURE_MODE |
+| AXI_MM_BYTE_STROBE_ERROR | `68` | AXI_MM_BYTE_STROBE_ERROR |
+| DMA_S2MM_0_ERROR | `69` | DMA_S2MM_0_ERROR |
+| DMA_S2MM_1_ERROR | `70` | DMA_S2MM_1_ERROR |
+| DMA_MM2S_0_ERROR | `71` | DMA_MM2S_0_ERROR |
+| DMA_MM2S_1_ERROR | `72` | DMA_MM2S_1_ERROR |
+| GROUP_STREAM_SWITCH | `73` | GROUP_STREAM_SWITCH |
+| PORT_IDLE_0 | `74` | PORT_IDLE_0 |
+| PORT_RUNNING_0 | `75` | PORT_RUNNING_0 |
+| PORT_STALLED_0 | `76` | PORT_STALLED_0 |
+| PORT_TLAST_0 | `77` | PORT_TLAST_0 |
+| PORT_IDLE_1 | `78` | PORT_IDLE_1 |
+| PORT_RUNNING_1 | `79` | PORT_RUNNING_1 |
+| PORT_STALLED_1 | `80` | PORT_STALLED_1 |
+| PORT_TLAST_1 | `81` | PORT_TLAST_1 |
+| PORT_IDLE_2 | `82` | PORT_IDLE_2 |
+| PORT_RUNNING_2 | `83` | PORT_RUNNING_2 |
+| PORT_STALLED_2 | `84` | PORT_STALLED_2 |
+| PORT_TLAST_2 | `85` | PORT_TLAST_2 |
+| PORT_IDLE_3 | `86` | PORT_IDLE_3 |
+| PORT_RUNNING_3 | `87` | PORT_RUNNING_3 |
+| PORT_STALLED_3 | `88` | PORT_STALLED_3 |
+| PORT_TLAST_3 | `89` | PORT_TLAST_3 |
+| PORT_IDLE_4 | `90` | PORT_IDLE_4 |
+| PORT_RUNNING_4 | `91` | PORT_RUNNING_4 |
+| PORT_STALLED_4 | `92` | PORT_STALLED_4 |
+| PORT_TLAST_4 | `93` | PORT_TLAST_4 |
+| PORT_IDLE_5 | `94` | PORT_IDLE_5 |
+| PORT_RUNNING_5 | `95` | PORT_RUNNING_5 |
+| PORT_STALLED_5 | `96` | PORT_STALLED_5 |
+| PORT_TLAST_5 | `97` | PORT_TLAST_5 |
+| PORT_IDLE_6 | `98` | PORT_IDLE_6 |
+| PORT_RUNNING_6 | `99` | PORT_RUNNING_6 |
+| PORT_STALLED_6 | `100` | PORT_STALLED_6 |
+| PORT_TLAST_6 | `101` | PORT_TLAST_6 |
+| PORT_IDLE_7 | `102` | PORT_IDLE_7 |
+| PORT_RUNNING_7 | `103` | PORT_RUNNING_7 |
+| PORT_STALLED_7 | `104` | PORT_STALLED_7 |
+| PORT_TLAST_7 | `105` | PORT_TLAST_7 |
+| GROUP_BROADCAST_A | `106` | GROUP_BROADCAST_A |
+| BROADCAST_A_0 | `107` | BROADCAST_A_0 |
+| BROADCAST_A_1 | `108` | BROADCAST_A_1 |
+| BROADCAST_A_2 | `109` | BROADCAST_A_2 |
+| BROADCAST_A_3 | `110` | BROADCAST_A_3 |
+| BROADCAST_A_4 | `111` | BROADCAST_A_4 |
+| BROADCAST_A_5 | `112` | BROADCAST_A_5 |
+| BROADCAST_A_6 | `113` | BROADCAST_A_6 |
+| BROADCAST_A_7 | `114` | BROADCAST_A_7 |
+| BROADCAST_A_8 | `115` | BROADCAST_A_8 |
+| BROADCAST_A_9 | `116` | BROADCAST_A_9 |
+| BROADCAST_A_10 | `117` | BROADCAST_A_10 |
+| BROADCAST_A_11 | `118` | BROADCAST_A_11 |
+| BROADCAST_A_12 | `119` | BROADCAST_A_12 |
+| BROADCAST_A_13 | `120` | BROADCAST_A_13 |
+| BROADCAST_A_14 | `121` | BROADCAST_A_14 |
+| BROADCAST_A_15 | `122` | BROADCAST_A_15 |
+| GROUP_USER_EVENT | `123` | GROUP_USER_EVENT |
+| USER_EVENT_0 | `124` | USER_EVENT_0 |
+| USER_EVENT_1 | `125` | USER_EVENT_1 |
+| USER_EVENT_2 | `126` | USER_EVENT_2 |
+| USER_EVENT_3 | `127` | USER_EVENT_3 |
+
+### ShimTileEventAIE2
+
+_Shim tile event enumeration for AIE2_
+
+#### Cases:
+
+| Symbol | Value | String |
+| :----: | :---: | ------ |
+| NONE | `0` | NONE |
+| TRUE | `1` | TRUE |
+| GROUP_0 | `2` | GROUP_0 |
+| TIMER_SYNC | `3` | TIMER_SYNC |
+| TIMER_VALUE_REACHED | `4` | TIMER_VALUE_REACHED |
+| PERF_CNT_0 | `5` | PERF_CNT_0 |
+| PERF_CNT_1 | `6` | PERF_CNT_1 |
+| COMBO_EVENT_0 | `7` | COMBO_EVENT_0 |
+| COMBO_EVENT_1 | `8` | COMBO_EVENT_1 |
+| COMBO_EVENT_2 | `9` | COMBO_EVENT_2 |
+| COMBO_EVENT_3 | `10` | COMBO_EVENT_3 |
+| EDGE_DETECTION_EVENT_0 | `11` | EDGE_DETECTION_EVENT_0 |
+| EDGE_DETECTION_EVENT_1 | `12` | EDGE_DETECTION_EVENT_1 |
+| GROUP_DMA_ACTIVITY | `13` | GROUP_DMA_ACTIVITY |
+| DMA_S2MM_0_START_TASK | `14` | DMA_S2MM_0_START_TASK |
+| DMA_S2MM_1_START_TASK | `15` | DMA_S2MM_1_START_TASK |
+| DMA_MM2S_0_START_TASK | `16` | DMA_MM2S_0_START_TASK |
+| DMA_MM2S_1_START_TASK | `17` | DMA_MM2S_1_START_TASK |
+| DMA_S2MM_0_FINISHED_BD | `18` | DMA_S2MM_0_FINISHED_BD |
+| DMA_S2MM_1_FINISHED_BD | `19` | DMA_S2MM_1_FINISHED_BD |
+| DMA_MM2S_0_FINISHED_BD | `20` | DMA_MM2S_0_FINISHED_BD |
+| DMA_MM2S_1_FINISHED_BD | `21` | DMA_MM2S_1_FINISHED_BD |
+| DMA_S2MM_0_FINISHED_TASK | `22` | DMA_S2MM_0_FINISHED_TASK |
+| DMA_S2MM_1_FINISHED_TASK | `23` | DMA_S2MM_1_FINISHED_TASK |
+| DMA_MM2S_0_FINISHED_TASK | `24` | DMA_MM2S_0_FINISHED_TASK |
+| DMA_MM2S_1_FINISHED_TASK | `25` | DMA_MM2S_1_FINISHED_TASK |
+| DMA_S2MM_0_STALLED_LOCK | `26` | DMA_S2MM_0_STALLED_LOCK |
+| DMA_S2MM_1_STALLED_LOCK | `27` | DMA_S2MM_1_STALLED_LOCK |
+| DMA_MM2S_0_STALLED_LOCK | `28` | DMA_MM2S_0_STALLED_LOCK |
+| DMA_MM2S_1_STALLED_LOCK | `29` | DMA_MM2S_1_STALLED_LOCK |
+| DMA_S2MM_0_STREAM_STARVATION | `30` | DMA_S2MM_0_STREAM_STARVATION |
+| DMA_S2MM_1_STREAM_STARVATION | `31` | DMA_S2MM_1_STREAM_STARVATION |
+| DMA_MM2S_0_STREAM_BACKPRESSURE | `32` | DMA_MM2S_0_STREAM_BACKPRESSURE |
+| DMA_MM2S_1_STREAM_BACKPRESSURE | `33` | DMA_MM2S_1_STREAM_BACKPRESSURE |
+| DMA_S2MM_0_MEMORY_BACKPRESSURE | `34` | DMA_S2MM_0_MEMORY_BACKPRESSURE |
+| DMA_S2MM_1_MEMORY_BACKPRESSURE | `35` | DMA_S2MM_1_MEMORY_BACKPRESSURE |
+| DMA_MM2S_0_MEMORY_STARVATION | `36` | DMA_MM2S_0_MEMORY_STARVATION |
+| DMA_MM2S_1_MEMORY_STARVATION | `37` | DMA_MM2S_1_MEMORY_STARVATION |
+| GROUP_LOCK | `38` | GROUP_LOCK |
+| LOCK_0_ACQ_EQ | `39` | LOCK_0_ACQ_EQ |
+| LOCK_0_ACQ_GE | `40` | LOCK_0_ACQ_GE |
+| LOCK_0_REL | `41` | LOCK_0_REL |
+| LOCK_0_EQUAL_TO_VALUE | `42` | LOCK_0_EQUAL_TO_VALUE |
+| LOCK_1_ACQ_EQ | `43` | LOCK_1_ACQ_EQ |
+| LOCK_1_ACQ_GE | `44` | LOCK_1_ACQ_GE |
+| LOCK_1_REL | `45` | LOCK_1_REL |
+| LOCK_1_EQUAL_TO_VALUE | `46` | LOCK_1_EQUAL_TO_VALUE |
+| LOCK_2_ACQ_EQ | `47` | LOCK_2_ACQ_EQ |
+| LOCK_2_ACQ_GE | `48` | LOCK_2_ACQ_GE |
+| LOCK_2_REL | `49` | LOCK_2_REL |
+| LOCK_2_EQUAL_TO_VALUE | `50` | LOCK_2_EQUAL_TO_VALUE |
+| LOCK_3_ACQ_EQ | `51` | LOCK_3_ACQ_EQ |
+| LOCK_3_ACQ_GE | `52` | LOCK_3_ACQ_GE |
+| LOCK_3_REL | `53` | LOCK_3_REL |
+| LOCK_3_EQUAL_TO_VALUE | `54` | LOCK_3_EQUAL_TO_VALUE |
+| LOCK_4_ACQ_EQ | `55` | LOCK_4_ACQ_EQ |
+| LOCK_4_ACQ_GE | `56` | LOCK_4_ACQ_GE |
+| LOCK_4_REL | `57` | LOCK_4_REL |
+| LOCK_4_EQUAL_TO_VALUE | `58` | LOCK_4_EQUAL_TO_VALUE |
+| LOCK_5_ACQ_EQ | `59` | LOCK_5_ACQ_EQ |
+| LOCK_5_ACQ_GE | `60` | LOCK_5_ACQ_GE |
+| LOCK_5_REL | `61` | LOCK_5_REL |
+| LOCK_5_EQUAL_TO_VALUE | `62` | LOCK_5_EQUAL_TO_VALUE |
+| GROUP_ERRORS | `63` | GROUP_ERRORS |
+| AXI_MM_SLAVE_ERROR | `64` | AXI_MM_SLAVE_ERROR |
+| CONTROL_PKT_ERROR | `65` | CONTROL_PKT_ERROR |
+| STREAM_SWITCH_PARITY_ERROR | `66` | STREAM_SWITCH_PARITY_ERROR |
+| AXI_MM_DECODE_NSU_ERROR | `67` | AXI_MM_DECODE_NSU_ERROR |
+| AXI_MM_SLAVE_NSU_ERROR | `68` | AXI_MM_SLAVE_NSU_ERROR |
+| AXI_MM_UNSUPPORTED_TRAFFIC | `69` | AXI_MM_UNSUPPORTED_TRAFFIC |
+| AXI_MM_UNSECURE_ACCESS_IN_SECURE_MODE | `70` | AXI_MM_UNSECURE_ACCESS_IN_SECURE_MODE |
+| AXI_MM_BYTE_STROBE_ERROR | `71` | AXI_MM_BYTE_STROBE_ERROR |
+| DMA_S2MM_ERROR | `72` | DMA_S2MM_ERROR |
+| DMA_MM2S_ERROR | `73` | DMA_MM2S_ERROR |
+| LOCK_ERROR | `74` | LOCK_ERROR |
+| DMA_TASK_TOKEN_STALL | `75` | DMA_TASK_TOKEN_STALL |
+| GROUP_STREAM_SWITCH | `76` | GROUP_STREAM_SWITCH |
+| PORT_IDLE_0 | `77` | PORT_IDLE_0 |
+| PORT_RUNNING_0 | `78` | PORT_RUNNING_0 |
+| PORT_STALLED_0 | `79` | PORT_STALLED_0 |
+| PORT_TLAST_0 | `80` | PORT_TLAST_0 |
+| PORT_IDLE_1 | `81` | PORT_IDLE_1 |
+| PORT_RUNNING_1 | `82` | PORT_RUNNING_1 |
+| PORT_STALLED_1 | `83` | PORT_STALLED_1 |
+| PORT_TLAST_1 | `84` | PORT_TLAST_1 |
+| PORT_IDLE_2 | `85` | PORT_IDLE_2 |
+| PORT_RUNNING_2 | `86` | PORT_RUNNING_2 |
+| PORT_STALLED_2 | `87` | PORT_STALLED_2 |
+| PORT_TLAST_2 | `88` | PORT_TLAST_2 |
+| PORT_IDLE_3 | `89` | PORT_IDLE_3 |
+| PORT_RUNNING_3 | `90` | PORT_RUNNING_3 |
+| PORT_STALLED_3 | `91` | PORT_STALLED_3 |
+| PORT_TLAST_3 | `92` | PORT_TLAST_3 |
+| PORT_IDLE_4 | `93` | PORT_IDLE_4 |
+| PORT_RUNNING_4 | `94` | PORT_RUNNING_4 |
+| PORT_STALLED_4 | `95` | PORT_STALLED_4 |
+| PORT_TLAST_4 | `96` | PORT_TLAST_4 |
+| PORT_IDLE_5 | `97` | PORT_IDLE_5 |
+| PORT_RUNNING_5 | `98` | PORT_RUNNING_5 |
+| PORT_STALLED_5 | `99` | PORT_STALLED_5 |
+| PORT_TLAST_5 | `100` | PORT_TLAST_5 |
+| PORT_IDLE_6 | `101` | PORT_IDLE_6 |
+| PORT_RUNNING_6 | `102` | PORT_RUNNING_6 |
+| PORT_STALLED_6 | `103` | PORT_STALLED_6 |
+| PORT_TLAST_6 | `104` | PORT_TLAST_6 |
+| PORT_IDLE_7 | `105` | PORT_IDLE_7 |
+| PORT_RUNNING_7 | `106` | PORT_RUNNING_7 |
+| PORT_STALLED_7 | `107` | PORT_STALLED_7 |
+| PORT_TLAST_7 | `108` | PORT_TLAST_7 |
+| GROUP_BROADCAST_A | `109` | GROUP_BROADCAST_A |
+| BROADCAST_A_0 | `110` | BROADCAST_A_0 |
+| BROADCAST_A_1 | `111` | BROADCAST_A_1 |
+| BROADCAST_A_2 | `112` | BROADCAST_A_2 |
+| BROADCAST_A_3 | `113` | BROADCAST_A_3 |
+| BROADCAST_A_4 | `114` | BROADCAST_A_4 |
+| BROADCAST_A_5 | `115` | BROADCAST_A_5 |
+| BROADCAST_A_6 | `116` | BROADCAST_A_6 |
+| BROADCAST_A_7 | `117` | BROADCAST_A_7 |
+| BROADCAST_A_8 | `118` | BROADCAST_A_8 |
+| BROADCAST_A_9 | `119` | BROADCAST_A_9 |
+| BROADCAST_A_10 | `120` | BROADCAST_A_10 |
+| BROADCAST_A_11 | `121` | BROADCAST_A_11 |
+| BROADCAST_A_12 | `122` | BROADCAST_A_12 |
+| BROADCAST_A_13 | `123` | BROADCAST_A_13 |
+| BROADCAST_A_14 | `124` | BROADCAST_A_14 |
+| BROADCAST_A_15 | `125` | BROADCAST_A_15 |
+| USER_EVENT_0 | `126` | USER_EVENT_0 |
+| USER_EVENT_1 | `127` | USER_EVENT_1 |
+
+### ShimTileEventAIE2P
+
+_Shim tile event enumeration for AIE2P_
+
+#### Cases:
+
+| Symbol | Value | String |
+| :----: | :---: | ------ |
+| NONE | `0` | NONE |
+| TRUE | `1` | TRUE |
+| GROUP_0 | `2` | GROUP_0 |
+| TIMER_SYNC | `3` | TIMER_SYNC |
+| TIMER_VALUE_REACHED | `4` | TIMER_VALUE_REACHED |
+| PERF_CNT_0 | `5` | PERF_CNT_0 |
+| PERF_CNT_1 | `6` | PERF_CNT_1 |
+| COMBO_EVENT_0 | `7` | COMBO_EVENT_0 |
+| COMBO_EVENT_1 | `8` | COMBO_EVENT_1 |
+| COMBO_EVENT_2 | `9` | COMBO_EVENT_2 |
+| COMBO_EVENT_3 | `10` | COMBO_EVENT_3 |
+| EDGE_DETECTION_EVENT_0 | `11` | EDGE_DETECTION_EVENT_0 |
+| EDGE_DETECTION_EVENT_1 | `12` | EDGE_DETECTION_EVENT_1 |
+| GROUP_DMA_ACTIVITY | `13` | GROUP_DMA_ACTIVITY |
+| DMA_S2MM_0_START_TASK | `14` | DMA_S2MM_0_START_TASK |
+| DMA_S2MM_1_START_TASK | `15` | DMA_S2MM_1_START_TASK |
+| DMA_MM2S_0_START_TASK | `16` | DMA_MM2S_0_START_TASK |
+| DMA_MM2S_1_START_TASK | `17` | DMA_MM2S_1_START_TASK |
+| DMA_S2MM_0_FINISHED_BD | `18` | DMA_S2MM_0_FINISHED_BD |
+| DMA_S2MM_1_FINISHED_BD | `19` | DMA_S2MM_1_FINISHED_BD |
+| DMA_MM2S_0_FINISHED_BD | `20` | DMA_MM2S_0_FINISHED_BD |
+| DMA_MM2S_1_FINISHED_BD | `21` | DMA_MM2S_1_FINISHED_BD |
+| DMA_S2MM_0_FINISHED_TASK | `22` | DMA_S2MM_0_FINISHED_TASK |
+| DMA_S2MM_1_FINISHED_TASK | `23` | DMA_S2MM_1_FINISHED_TASK |
+| DMA_MM2S_0_FINISHED_TASK | `24` | DMA_MM2S_0_FINISHED_TASK |
+| DMA_MM2S_1_FINISHED_TASK | `25` | DMA_MM2S_1_FINISHED_TASK |
+| DMA_S2MM_0_STALLED_LOCK | `26` | DMA_S2MM_0_STALLED_LOCK |
+| DMA_S2MM_1_STALLED_LOCK | `27` | DMA_S2MM_1_STALLED_LOCK |
+| DMA_MM2S_0_STALLED_LOCK | `28` | DMA_MM2S_0_STALLED_LOCK |
+| DMA_MM2S_1_STALLED_LOCK | `29` | DMA_MM2S_1_STALLED_LOCK |
+| DMA_S2MM_0_STREAM_STARVATION | `30` | DMA_S2MM_0_STREAM_STARVATION |
+| DMA_S2MM_1_STREAM_STARVATION | `31` | DMA_S2MM_1_STREAM_STARVATION |
+| DMA_MM2S_0_STREAM_BACKPRESSURE | `32` | DMA_MM2S_0_STREAM_BACKPRESSURE |
+| DMA_MM2S_1_STREAM_BACKPRESSURE | `33` | DMA_MM2S_1_STREAM_BACKPRESSURE |
+| DMA_S2MM_0_MEMORY_BACKPRESSURE | `34` | DMA_S2MM_0_MEMORY_BACKPRESSURE |
+| DMA_S2MM_1_MEMORY_BACKPRESSURE | `35` | DMA_S2MM_1_MEMORY_BACKPRESSURE |
+| DMA_MM2S_0_MEMORY_STARVATION | `36` | DMA_MM2S_0_MEMORY_STARVATION |
+| DMA_MM2S_1_MEMORY_STARVATION | `37` | DMA_MM2S_1_MEMORY_STARVATION |
+| GROUP_LOCK | `38` | GROUP_LOCK |
+| LOCK_0_ACQ_EQ | `39` | LOCK_0_ACQ_EQ |
+| LOCK_0_ACQ_GE | `40` | LOCK_0_ACQ_GE |
+| LOCK_0_REL | `41` | LOCK_0_REL |
+| LOCK_0_EQUAL_TO_VALUE | `42` | LOCK_0_EQUAL_TO_VALUE |
+| LOCK_1_ACQ_EQ | `43` | LOCK_1_ACQ_EQ |
+| LOCK_1_ACQ_GE | `44` | LOCK_1_ACQ_GE |
+| LOCK_1_REL | `45` | LOCK_1_REL |
+| LOCK_1_EQUAL_TO_VALUE | `46` | LOCK_1_EQUAL_TO_VALUE |
+| LOCK_2_ACQ_EQ | `47` | LOCK_2_ACQ_EQ |
+| LOCK_2_ACQ_GE | `48` | LOCK_2_ACQ_GE |
+| LOCK_2_REL | `49` | LOCK_2_REL |
+| LOCK_2_EQUAL_TO_VALUE | `50` | LOCK_2_EQUAL_TO_VALUE |
+| LOCK_3_ACQ_EQ | `51` | LOCK_3_ACQ_EQ |
+| LOCK_3_ACQ_GE | `52` | LOCK_3_ACQ_GE |
+| LOCK_3_REL | `53` | LOCK_3_REL |
+| LOCK_3_EQUAL_TO_VALUE | `54` | LOCK_3_EQUAL_TO_VALUE |
+| LOCK_4_ACQ_EQ | `55` | LOCK_4_ACQ_EQ |
+| LOCK_4_ACQ_GE | `56` | LOCK_4_ACQ_GE |
+| LOCK_4_REL | `57` | LOCK_4_REL |
+| LOCK_4_EQUAL_TO_VALUE | `58` | LOCK_4_EQUAL_TO_VALUE |
+| LOCK_5_ACQ_EQ | `59` | LOCK_5_ACQ_EQ |
+| LOCK_5_ACQ_GE | `60` | LOCK_5_ACQ_GE |
+| LOCK_5_REL | `61` | LOCK_5_REL |
+| LOCK_5_EQUAL_TO_VALUE | `62` | LOCK_5_EQUAL_TO_VALUE |
+| GROUP_ERRORS | `63` | GROUP_ERRORS |
+| AXI_MM_SLAVE_ERROR | `64` | AXI_MM_SLAVE_ERROR |
+| CONTROL_PKT_ERROR | `65` | CONTROL_PKT_ERROR |
+| STREAM_SWITCH_PARITY_ERROR | `66` | STREAM_SWITCH_PARITY_ERROR |
+| AXI_MM_DECODE_NSU_ERROR | `67` | AXI_MM_DECODE_NSU_ERROR |
+| AXI_MM_SLAVE_NSU_ERROR | `68` | AXI_MM_SLAVE_NSU_ERROR |
+| AXI_MM_UNSUPPORTED_TRAFFIC | `69` | AXI_MM_UNSUPPORTED_TRAFFIC |
+| AXI_MM_UNSECURE_ACCESS_IN_SECURE_MODE | `70` | AXI_MM_UNSECURE_ACCESS_IN_SECURE_MODE |
+| AXI_MM_BYTE_STROBE_ERROR | `71` | AXI_MM_BYTE_STROBE_ERROR |
+| DMA_S2MM_ERROR | `72` | DMA_S2MM_ERROR |
+| DMA_MM2S_ERROR | `73` | DMA_MM2S_ERROR |
+| LOCK_ERROR | `74` | LOCK_ERROR |
+| DMA_TASK_TOKEN_STALL | `75` | DMA_TASK_TOKEN_STALL |
+| GROUP_STREAM_SWITCH | `76` | GROUP_STREAM_SWITCH |
+| PORT_IDLE_0 | `77` | PORT_IDLE_0 |
+| PORT_RUNNING_0 | `78` | PORT_RUNNING_0 |
+| PORT_STALLED_0 | `79` | PORT_STALLED_0 |
+| PORT_TLAST_0 | `80` | PORT_TLAST_0 |
+| PORT_IDLE_1 | `81` | PORT_IDLE_1 |
+| PORT_RUNNING_1 | `82` | PORT_RUNNING_1 |
+| PORT_STALLED_1 | `83` | PORT_STALLED_1 |
+| PORT_TLAST_1 | `84` | PORT_TLAST_1 |
+| PORT_IDLE_2 | `85` | PORT_IDLE_2 |
+| PORT_RUNNING_2 | `86` | PORT_RUNNING_2 |
+| PORT_STALLED_2 | `87` | PORT_STALLED_2 |
+| PORT_TLAST_2 | `88` | PORT_TLAST_2 |
+| PORT_IDLE_3 | `89` | PORT_IDLE_3 |
+| PORT_RUNNING_3 | `90` | PORT_RUNNING_3 |
+| PORT_STALLED_3 | `91` | PORT_STALLED_3 |
+| PORT_TLAST_3 | `92` | PORT_TLAST_3 |
+| PORT_IDLE_4 | `93` | PORT_IDLE_4 |
+| PORT_RUNNING_4 | `94` | PORT_RUNNING_4 |
+| PORT_STALLED_4 | `95` | PORT_STALLED_4 |
+| PORT_TLAST_4 | `96` | PORT_TLAST_4 |
+| PORT_IDLE_5 | `97` | PORT_IDLE_5 |
+| PORT_RUNNING_5 | `98` | PORT_RUNNING_5 |
+| PORT_STALLED_5 | `99` | PORT_STALLED_5 |
+| PORT_TLAST_5 | `100` | PORT_TLAST_5 |
+| PORT_IDLE_6 | `101` | PORT_IDLE_6 |
+| PORT_RUNNING_6 | `102` | PORT_RUNNING_6 |
+| PORT_STALLED_6 | `103` | PORT_STALLED_6 |
+| PORT_TLAST_6 | `104` | PORT_TLAST_6 |
+| PORT_IDLE_7 | `105` | PORT_IDLE_7 |
+| PORT_RUNNING_7 | `106` | PORT_RUNNING_7 |
+| PORT_STALLED_7 | `107` | PORT_STALLED_7 |
+| PORT_TLAST_7 | `108` | PORT_TLAST_7 |
+| GROUP_BROADCAST_A | `109` | GROUP_BROADCAST_A |
+| BROADCAST_A_0 | `110` | BROADCAST_A_0 |
+| BROADCAST_A_1 | `111` | BROADCAST_A_1 |
+| BROADCAST_A_2 | `112` | BROADCAST_A_2 |
+| BROADCAST_A_3 | `113` | BROADCAST_A_3 |
+| BROADCAST_A_4 | `114` | BROADCAST_A_4 |
+| BROADCAST_A_5 | `115` | BROADCAST_A_5 |
+| BROADCAST_A_6 | `116` | BROADCAST_A_6 |
+| BROADCAST_A_7 | `117` | BROADCAST_A_7 |
+| BROADCAST_A_8 | `118` | BROADCAST_A_8 |
+| BROADCAST_A_9 | `119` | BROADCAST_A_9 |
+| BROADCAST_A_10 | `120` | BROADCAST_A_10 |
+| BROADCAST_A_11 | `121` | BROADCAST_A_11 |
+| BROADCAST_A_12 | `122` | BROADCAST_A_12 |
+| BROADCAST_A_13 | `123` | BROADCAST_A_13 |
+| BROADCAST_A_14 | `124` | BROADCAST_A_14 |
+| BROADCAST_A_15 | `125` | BROADCAST_A_15 |
+| USER_EVENT_0 | `126` | USER_EVENT_0 |
+| USER_EVENT_1 | `127` | USER_EVENT_1 |
+
+### TraceMode
+
+_Trace capture mode_
+
+#### Cases:
+
+| Symbol | Value | String |
+| :----: | :---: | ------ |
+| EventTime | `0` | Event-Time |
+| EventPC | `1` | Event-PC |
+| Execution | `2` | Execution |
+
+### TracePacketType
+
+_Packet type identifier for parsing_
+
+#### Cases:
+
+| Symbol | Value | String |
+| :----: | :---: | ------ |
+| Core | `0` | core |
+| Mem | `1` | mem |
+| ShimTile | `2` | shimtile |
+| MemTile | `3` | memtile |
+
+### TraceShimRouting
+
+_Shim tile routing strategy for trace collection_
+
+#### Cases:
+
+| Symbol | Value | String |
+| :----: | :---: | ------ |
+| Single | `0` | single |
 
 ### WireBundle
 
