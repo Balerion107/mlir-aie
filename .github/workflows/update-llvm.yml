@@ -16,11 +16,6 @@ on:
         description: 'Specific LLVM hash to use'
         required: false
         type: string
-  schedule:
-    # Run on the 1st and 15th of every month at 6:00 UTC (approx biweekly).
-    # GitHub Actions cron can't express "every 2 weeks" directly, so we use
-    # fixed days of the month rather than a weekday cadence.
-    - cron: '0 6 1,15 * *'
 
 permissions:
   contents: write
