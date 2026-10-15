@@ -19,9 +19,6 @@ on:
   push:
     tags:
       - 'v*.*.*'
-  schedule:
-    # At 04:00. (see https://crontab.guru)
-    - cron: '0 4 * * *'
 
 defaults:
   run:
