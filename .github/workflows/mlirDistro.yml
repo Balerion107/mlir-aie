@@ -58,13 +58,6 @@ on:
         default: ''
 
 
-  schedule:
-    # At minute 0 past every 4th hour. (see https://crontab.guru)
-    - cron: '0 */4 * * *'
-
-  # this is only for debugging this same yamls
-  # comment it out when you're not working on these yamls
-#  pull_request:
 
 concurrency:
   # PR runs from the same PR cancel earlier in-flight runs (standard supersede).

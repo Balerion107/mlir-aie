@@ -4,9 +4,6 @@
 name: Prune release assets
 
 on:
-  schedule:
-    # Daily at 04:17 UTC. Off-the-hour to avoid the GH Actions traffic spike.
-    - cron: '17 4 * * *'
   workflow_dispatch:
     inputs:
       max_age_days:
